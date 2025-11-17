@@ -13,6 +13,14 @@ export default defineConfig(({ mode }) => ({
   ],
   server: {
     watch: { usePolling: true, interval: 800 /* 300~1500 */ },
+    proxy: {
+      '/api': {
+        target: 'https://apis.data.go.kr',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false,
+      },
+    },
   },
   resolve: {
     alias: {

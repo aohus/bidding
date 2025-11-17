@@ -1,6 +1,6 @@
 import { BidSearchParams, BidApiResponse } from '@/types/bid';
 
-const API_BASE_URL = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch';
+const API_BASE_URL = '/api/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch';
 
 export async function searchBids(params: BidSearchParams): Promise<BidApiResponse> {
   const queryParams = new URLSearchParams();
