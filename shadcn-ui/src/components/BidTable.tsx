@@ -51,6 +51,9 @@ export default function BidTable({ bids, onCalculate }: BidTableProps) {
             <TableHead className="min-w-[150px]">입찰마감일시</TableHead>
             <TableHead className="min-w-[150px]">개찰일시</TableHead>
             <TableHead className="min-w-[100px]">낙찰방법</TableHead>
+            <TableHead className="min-w-[120px]">계약체결방법</TableHead>
+            <TableHead className="min-w-[100px]">공동수급방식</TableHead>
+            <TableHead className="min-w-[100px]">업종제한</TableHead>
             <TableHead className="w-[100px]">투찰</TableHead>
           </TableRow>
         </TableHeader>
@@ -87,6 +90,9 @@ export default function BidTable({ bids, onCalculate }: BidTableProps) {
                   {bid.sucsfbidMthdNm || '미제공'}
                 </Badge>
               </TableCell>
+              <TableCell className="text-sm">{bid.cntrctCnclsMthdNm || '미제공'}</TableCell>
+              <TableCell className="text-sm">{bid.cmmnSpldmdCorpYn === 'Y' ? '가능' : '불가'}</TableCell>
+              <TableCell className="text-sm">{bid.indutyLmtYn === 'Y' ? '있음' : '없음'}</TableCell>
               <TableCell>
                 <Button size="sm" onClick={() => onCalculate(bid)} className="w-full">
                   <Calculator className="mr-1 h-4 w-4" />

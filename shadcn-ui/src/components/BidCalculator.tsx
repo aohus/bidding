@@ -21,15 +21,15 @@ export default function BidCalculator({ bid, isOpen, onClose }: BidCalculatorPro
   const result = calculateOptimalBidPrice(estimatedPrice, bid.prearngPrceDcsnMthdNm || '미제공', minSuccessRate);
 
   const documents = [
-    { url: bid.ntceSpecDocUrl1, name: '공고규격서 1' },
-    { url: bid.ntceSpecDocUrl2, name: '공고규격서 2' },
-    { url: bid.ntceSpecDocUrl3, name: '공고규격서 3' },
-    { url: bid.ntceSpecDocUrl4, name: '공고규격서 4' },
-    { url: bid.ntceSpecDocUrl5, name: '공고규격서 5' },
-    { url: bid.sptDscrptDocUrl1, name: '현장설명서 1' },
-    { url: bid.sptDscrptDocUrl2, name: '현장설명서 2' },
-    { url: bid.sptDscrptDocUrl3, name: '현장설명서 3' },
-    { url: bid.stdNtceDocUrl, name: '표준공고서' },
+    { url: bid.ntceSpecDocUrl1, name: bid.ntceSpecFileNm1 || '공고규격서 1' },
+    { url: bid.ntceSpecDocUrl2, name: bid.ntceSpecFileNm2 || '공고규격서 2' },
+    { url: bid.ntceSpecDocUrl3, name: bid.ntceSpecFileNm3 || '공고규격서 3' },
+    { url: bid.ntceSpecDocUrl4, name: bid.ntceSpecFileNm4 || '공고규격서 4' },
+    { url: bid.ntceSpecDocUrl5, name: bid.ntceSpecFileNm5 || '공고규격서 5' },
+    { url: bid.sptDscrptDocUrl1, name: bid.sptDscrptFileNm1 || '현장설명서 1' },
+    { url: bid.sptDscrptDocUrl2, name: bid.sptDscrptFileNm2 || '현장설명서 2' },
+    { url: bid.sptDscrptDocUrl3, name: bid.sptDscrptFileNm3 || '현장설명서 3' },
+    { url: bid.stdNtceDocUrl, name: bid.stdNtceDocFileNm || '표준공고서' },
     { url: bid.bidNtceUrl, name: '입찰공고 페이지' },
     { url: bid.bidNtceDtlUrl, name: '입찰공고 상세' },
   ].filter((doc) => doc.url);
@@ -90,7 +90,7 @@ export default function BidCalculator({ bid, isOpen, onClose }: BidCalculatorPro
                       key={index}
                       variant="outline"
                       className="w-full justify-start"
-                      onClick={() => downloadDocument(doc.url!, `${doc.name}.pdf`)}
+                      onClick={() => downloadDocument(doc.url!, doc.name)}
                     >
                       <FileText className="mr-2 h-4 w-4" />
                       {doc.name}

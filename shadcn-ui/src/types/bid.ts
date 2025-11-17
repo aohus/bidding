@@ -32,13 +32,24 @@ export interface BidItem {
   ntceSpecDocUrl3?: string;
   ntceSpecDocUrl4?: string;
   ntceSpecDocUrl5?: string;
+  ntceSpecFileNm1?: string; // 공고규격서파일명1
+  ntceSpecFileNm2?: string; // 공고규격서파일명2
+  ntceSpecFileNm3?: string; // 공고규격서파일명3
+  ntceSpecFileNm4?: string; // 공고규격서파일명4
+  ntceSpecFileNm5?: string; // 공고규격서파일명5
   sptDscrptDocUrl1?: string;
   sptDscrptDocUrl2?: string;
   sptDscrptDocUrl3?: string;
+  sptDscrptFileNm1?: string; // 현장설명서파일명1
+  sptDscrptFileNm2?: string; // 현장설명서파일명2
+  sptDscrptFileNm3?: string; // 현장설명서파일명3
   stdNtceDocUrl?: string;
+  stdNtceDocFileNm?: string; // 표준공고서파일명
   bidNtceUrl?: string;
   bidNtceDtlUrl?: string;
   cnstrtsiteRgnNm?: string; // 공사현장지역명
+  cmmnSpldmdCorpYn?: string; // 공동수급방식명
+  indutyLmtYn?: string; // 업종제한여부
 }
 
 export interface BidApiResponse {
