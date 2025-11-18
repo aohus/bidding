@@ -1,0 +1,143 @@
+@startuml Database ER Diagram
+
+' 스타일 설정
+skinparam linetype ortho
+skinparam roundcorner 10
+skinparam class {
+  BackgroundColor<<PK>> LightYellow
+  BackgroundColor<<FK>> LightBlue
+  BorderColor Black
+  ArrowColor Black
+}
+
+' 엔티티 정의
+entity "users" as users {
+  * **user_id** : UUID <<PK>>
+  ==
+  * username : VARCHAR(50) <<UK>>
+  * email : VARCHAR(255) <<UK>>
+  * password_hash : VARCHAR(255)
+  full_name : VARCHAR(100)
+  is_active : BOOLEAN
+  is_verified : BOOLEAN
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+  last_login_at : TIMESTAMP
+}
+
+entity "user_preferences" as preferences {
+  * **preference_id** : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  default_search_conditions : JSONB
+  notification_enabled : BOOLEAN
+  notification_frequency : VARCHAR(20)
+  notification_channels : JSONB
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+entity "saved_searches" as searches {
+  * **search_id** : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * search_name : VARCHAR(100)
+  * search_filters : JSONB
+  is_active : BOOLEAN
+  last_executed_at : TIMESTAMP
+  execution_count : INTEGER
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+}
+
+entity "bid_notifications" as notifications {
+  * **notification_id** : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  search_id : UUID <<FK>>
+  * bid_ntce_no : VARCHAR(50)
+  * bid_ntce_ord : VARCHAR(10)
+  * bid_data : JSONB
+  notification_status : VARCHAR(20)
+  sent_at : TIMESTAMP
+  read_at : TIMESTAMP
+  created_at : TIMESTAMP
+}
+
+entity "api_usage_logs" as logs {
+  * **log_id** : UUID <<PK>>
+  ==
+  user_id : UUID <<FK>>
+  * endpoint : VARCHAR(255)
+  request_params : JSONB
+  * response_status : INTEGER
+  response_time_ms : INTEGER
+  error_message : TEXT
+  created_at : TIMESTAMP
+}
+
+entity "user_sessions" as sessions {
+  * **session_id** : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * refresh_token : VARCHAR(500) <<UK>>
+  * access_token_jti : VARCHAR(100)
+  ip_address : VARCHAR(45)
+  user_agent : VARCHAR(500)
+  * expires_at : TIMESTAMP
+  created_at : TIMESTAMP
+  last_used_at : TIMESTAMP
+}
+
+' 관계 정의
+users ||--|| preferences : "has one\n(1:1)"
+users ||--o{ searches : "has many\n(1:N)"
+users ||--o{ notifications : "receives\n(1:N)"
+users ||--o{ logs : "generates\n(1:N)"
+users ||--o{ sessions : "has many\n(1:N)"
+searches ||--o{ notifications : "triggers\n(1:N)"
+
+' 주석
+note right of users
+  **사용자 계정**
+  - 인증 및 권한 관리
+  - bcrypt 비밀번호 해싱
+  - 이메일 인증 지원
+end note
+
+note right of preferences
+  **사용자 선호 설정**
+  - 기본 검색 조건 저장
+  - 알림 설정 관리
+  - JSONB로 유연한 구조
+end note
+
+note right of searches
+  **저장된 검색**
+  - 재사용 가능한 검색 조건
+  - 실행 이력 추적
+  - 활성화/비활성화 지원
+end note
+
+note right of notifications
+  **입찰 알림**
+  - 자동 알림 발송
+  - 읽음 상태 추적
+  - 입찰 데이터 캐싱
+end note
+
+note bottom of logs
+  **API 사용 로그**
+  - 공공데이터 API 호출 추적
+  - 성능 모니터링
+  - 오류 디버깅
+end note
+
+note bottom of sessions
+  **사용자 세션**
+  - JWT 토큰 관리
+  - 다중 디바이스 지원
+  - 보안 감사
+end note
+
+@enduml

@@ -1,91 +1,108 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon } from 'lucide-react';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BidSearchParams } from '@/types/bid';
+import { backendApi } from '@/lib/backendApi';
+import { toast } from 'sonner';
+import { Save, Download } from 'lucide-react';
 
 interface SearchFormProps {
-  onSearch: (params: {
-    inqryDiv: '1' | '2';
-    inqryBgnDt: string;
-    inqryEndDt: string;
-    prtcptLmtRgnCd?: string;
-    presmptPrceBgn?: string;
-    presmptPrceEnd?: string;
-  }) => void;
+  onSearch: (params: BidSearchParams) => void;
   isLoading: boolean;
 }
 
-const REGIONS = [
-  { code: '00', name: '전국' },
-  { code: '11', name: '서울특별시' },
-  { code: '26', name: '부산광역시' },
-  { code: '27', name: '대구광역시' },
-  { code: '28', name: '인천광역시' },
-  { code: '29', name: '광주광역시' },
-  { code: '30', name: '대전광역시' },
-  { code: '31', name: '울산광역시' },
-  { code: '36', name: '세종특별자치시' },
-  { code: '41', name: '경기도' },
-  { code: '42', name: '강원도' },
-  { code: '43', name: '충청북도' },
-  { code: '44', name: '충청남도' },
-  { code: '45', name: '전라북도' },
-  { code: '46', name: '전라남도' },
-  { code: '47', name: '경상북도' },
-  { code: '48', name: '경상남도' },
-  { code: '50', name: '제주도' },
-];
-
 export default function SearchForm({ onSearch, isLoading }: SearchFormProps) {
   const [inqryDiv, setInqryDiv] = useState<'1' | '2'>('1');
-  const [startDate, setStartDate] = useState<Date>();
-  const [endDate, setEndDate] = useState<Date>();
-  const [region, setRegion] = useState<string>('');
-  const [minBudget, setMinBudget] = useState<string>('');
-  const [maxBudget, setMaxBudget] = useState<string>('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [region, setRegion] = useState('');
+
+  // Load saved preferences on mount
+  useEffect(() => {
+    loadPreferences();
+  }, []);
+
+  const loadPreferences = async () => {
+    try {
+      const preference = await backendApi.getPreference();
+      if (preference && preference.search_conditions) {
+        const conditions = preference.search_conditions;
+        if (conditions.inqryDiv) setInqryDiv(conditions.inqryDiv);
+        if (conditions.startDate) setStartDate(conditions.startDate);
+        if (conditions.endDate) setEndDate(conditions.endDate);
+        if (conditions.region) setRegion(conditions.region);
+        toast.success('저장된 검색 조건을 불러왔습니다');
+      }
+    } catch (error) {
+      // Silently fail if no preferences exist
+      console.log('No saved preferences found');
+    }
+  };
+
+  const savePreferences = async () => {
+    try {
+      await backendApi.savePreference({
+        inqryDiv,
+        startDate,
+        endDate,
+        region,
+      });
+      toast.success('검색 조건이 저장되었습니다');
+    } catch (error) {
+      toast.error('검색 조건 저장 실패');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!startDate || !endDate) {
-      alert('날짜 범위를 선택해주세요.');
+      toast.error('시작일과 종료일을 입력해주세요');
       return;
     }
 
-    const formatDate = (date: Date) => {
-      return format(date, 'yyyyMMddHHmm');
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start > end) {
+      toast.error('시작일이 종료일보다 늦을 수 없습니다');
+      return;
+    }
+
+    const formatDateTime = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}${month}${day}0000`;
     };
 
-    onSearch({
+    const params: BidSearchParams = {
       inqryDiv,
-      inqryBgnDt: formatDate(startDate),
-      inqryEndDt: formatDate(endDate),
+      inqryBgnDt: formatDateTime(start),
+      inqryEndDt: formatDateTime(end),
       prtcptLmtRgnCd: region || undefined,
-      presmptPrceBgn: minBudget || undefined,
-      presmptPrceEnd: maxBudget || undefined,
-    });
+      numOfRows: 100,
+      pageNo: 1,
+    };
+
+    onSearch(params);
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>입찰공고 검색</CardTitle>
-        <CardDescription>검색 조건을 입력하여 입찰공고를 조회하세요</CardDescription>
+        <CardTitle>입찰 공고 검색</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="inqryDiv">조회 구분</Label>
-              <Select value={inqryDiv} onValueChange={(value) => setInqryDiv(value as '1' | '2')}>
-                <SelectTrigger>
+              <Select value={inqryDiv} onValueChange={(value: '1' | '2') => setInqryDiv(value)}>
+                <SelectTrigger id="inqryDiv">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -96,87 +113,48 @@ export default function SearchForm({ onSearch, isLoading }: SearchFormProps) {
             </div>
 
             <div className="space-y-2">
-              <Label>지역</Label>
-              <Select value={region} onValueChange={setRegion}>
-                <SelectTrigger>
-                  <SelectValue placeholder="지역 선택 (선택사항)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {REGIONS.map((r) => (
-                    <SelectItem key={r.code} value={r.code}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>시작일</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn('w-full justify-start text-left font-normal', !startDate && 'text-muted-foreground')}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {startDate ? format(startDate, 'yyyy-MM-dd') : '날짜 선택'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="space-y-2">
-              <Label>종료일</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn('w-full justify-start text-left font-normal', !endDate && 'text-muted-foreground')}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {endDate ? format(endDate, 'yyyy-MM-dd') : '날짜 선택'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="minBudget">최소 추정가격 (원)</Label>
+              <Label htmlFor="region">지역 (선택)</Label>
               <Input
-                id="minBudget"
-                type="number"
-                placeholder="예: 10000000"
-                value={minBudget}
-                onChange={(e) => setMinBudget(e.target.value)}
+                id="region"
+                type="text"
+                placeholder="예: 11 (서울)"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="maxBudget">최대 추정가격 (원)</Label>
+              <Label htmlFor="startDate">시작일</Label>
               <Input
-                id="maxBudget"
-                type="number"
-                placeholder="예: 100000000"
-                value={maxBudget}
-                onChange={(e) => setMaxBudget(e.target.value)}
+                id="startDate"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="endDate">종료일</Label>
+              <Input
+                id="endDate"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                required
               />
             </div>
           </div>
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? '검색 중...' : '검색'}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" className="flex-1" disabled={isLoading}>
+              {isLoading ? '검색 중...' : '검색'}
+            </Button>
+            <Button type="button" variant="outline" onClick={savePreferences}>
+              <Save className="mr-2 h-4 w-4" />
+              조건 저장
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
