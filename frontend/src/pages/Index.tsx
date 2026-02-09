@@ -45,6 +45,32 @@ export default function Index() {
     setIsAuthenticated(AuthService.isAuthenticated());
   }, []);
 
+  // 초기 자동 검색 및 데이터 복원 처리
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    // 저장된 검색 조건이 없으면 기본값(오늘자 개찰일시)으로 검색 수행
+    if (!currentSearchParams) {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      
+      const defaultParams: BidSearchParams = {
+        inqryDiv: '2', // 개찰일시
+        inqryBgnDt: `${year}${month}${day}0000`,
+        inqryEndDt: `${year}${month}${day}2359`,
+        numOfRows: 100,
+        pageNo: 1
+      };
+      
+      handleSearch(defaultParams);
+    }
+    // 저장된 검색 조건이 있으면, useSearchState가 이미 bids와 totalCount를 복원했으므로 추가 동작 불필요
+    // 단, 결과가 비어있는데 검색 조건만 있는 경우(예: 오류로 결과 저장 안됨) 재검색을 원한다면 로직 추가 가능
+    // 현재는 '상태 복원'에 충실하여 API 재호출 하지 않음 (불필요한 트래픽 방지)
+  }, [isLoaded]);
+
   /**
    * [1] 공고 검색 핸들러
    */
