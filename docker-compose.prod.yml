@@ -1,5 +1,4 @@
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:14-alpine
     container_name: bidding-postgres
@@ -16,7 +15,6 @@ services:
     networks:
       - bidding-internal
 
-  # Backend API
   backend:
     build:
       context: ./backend
@@ -37,8 +35,8 @@ services:
     labels:
       - "traefik.enable=true"
       
-      # Backend API Router
-      - "traefik.http.routers.bidding-backend.rule=Host(`bidding.yourdomain.com`) && PathPrefix(`/api`)"
+      # Backend API Router (서브도메인으로 변경)
+      - "traefik.http.routers.bidding-backend.rule=Host(`bid.mycore-server.ddns.net`) && PathPrefix(`/api`)"
       - "traefik.http.routers.bidding-backend.entrypoints=websecure"
       - "traefik.http.routers.bidding-backend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.bidding-backend.priority=10"
@@ -64,7 +62,6 @@ services:
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # Frontend
   frontend:
     build:
       context: ./frontend
@@ -79,8 +76,8 @@ services:
     labels:
       - "traefik.enable=true"
       
-      # Frontend Router
-      - "traefik.http.routers.bidding-frontend.rule=Host(`bidding.yourdomain.com`)"
+      # Frontend Router (서브도메인으로 변경)
+      - "traefik.http.routers.bidding-frontend.rule=Host(`bid.mycore-server.ddns.net`)"
       - "traefik.http.routers.bidding-frontend.entrypoints=websecure"
       - "traefik.http.routers.bidding-frontend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.bidding-frontend.priority=1"
