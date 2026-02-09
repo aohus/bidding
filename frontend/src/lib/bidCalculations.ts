@@ -1,13 +1,14 @@
 import { BidCalculationResult, BidAValueItem } from '@/types/bid';
 
 export function calculateOptimalBidPrice(
-  budgetPrice: number | string,
+  basisAmount: number | string,
   priceDecisionMethod: string,
   aValueItem: BidAValueItem | number | null | undefined,
   minSuccessRate: number | string
 ): BidCalculationResult {
   // 1. 기초 데이터 숫자 변환 (안전장치)
-  const safeBudget = Number(budgetPrice) || 0;
+  // bssamt(기초금액)을 기준으로 계산합니다.
+  const safeBasisAmount = Number(basisAmount) || 0;
   const safeMinRate = (Number(minSuccessRate) || 0) / 100;
 
   let aValue = 0;
@@ -22,7 +23,8 @@ export function calculateOptimalBidPrice(
         parse(aValueItem.rtrfundNon) +          // 퇴직공제부금비
         parse(aValueItem.mrfnHealthInsrprm) +    // 국민건강보험료
         parse(aValueItem.npnInsrprm) +          // 국민연금보험료
-        parse(aValueItem.odsnLngtrmrcprInsrprm); // 노인장기요양보험료
+        parse(aValueItem.odsnLngtrmrcprInsrprm) + // 노인장기요양보험료
+        parse(aValueItem.envCnsrvcst);          // 환경보전비 (새로 추가)
 
       // 조건부 더하는 항목들
       const qltyA = aValueItem.qltyMngcstAObjYn === 'Y' ? parse(aValueItem.qltyMngcst) : 0;
@@ -38,8 +40,9 @@ export function calculateOptimalBidPrice(
 
   // 4. 예정가격 및 투찰가 계산 (A값 공식 적용)
   // 공식: ((예정가격 - A) * 하한율) + A
+  // 예정가격(predAvg)은 기초금액(safeBasisAmount) * 사정율(adjRate)로 계산됩니다.
   const calcBidPrice = (adjRate: number) => {
-    const predAvg = safeBudget * adjRate;
+    const predAvg = safeBasisAmount * adjRate;
     const result = Math.ceil((predAvg - aValue) * safeMinRate) + aValue;
     return isNaN(result) ? 0 : result;
   };
@@ -47,7 +50,6 @@ export function calculateOptimalBidPrice(
   const minPrice = calcBidPrice(floorAdjRate);
   const optimalPrice = calcBidPrice(optimalAdjRate);
   const recommendedPrice = calcBidPrice(recommendedAdjRate);
-  const maxPrice = safeBudget;
 
   // 5. 산출 근거 텍스트 생성
   let aValueDetail = '';
@@ -61,6 +63,7 @@ export function calculateOptimalBidPrice(
     - 산업안전보건비: ${parseStr(aValueItem.sftyMngcst)}원
     - 퇴직공제부금: ${parseStr(aValueItem.rtrfundNon)}원
     - 안전관리비: ${parseStr(aValueItem.sftyChckMngcst)}원
+    - 환경보전비: ${parseStr(aValueItem.envCnsrvcst)}원
     - 품질관리비: ${aValueItem.qltyMngcstAObjYn === 'Y' ? parseStr(aValueItem.qltyMngcst) : '0(미대상)'}원
     - 표준시장단가: ${aValueItem.smkpAmtYn === 'Y' ? parseStr(aValueItem.smkpAmt) : '0(미대상)'}원
     --------------------------------
@@ -70,7 +73,7 @@ export function calculateOptimalBidPrice(
 
       const calculation = `
     [나라장터 정밀 투찰 결과]
-    - 기초금액: ${safeBudget.toLocaleString()}원
+    - 기초금액(bssamt): ${safeBasisAmount.toLocaleString()}원
     - 낙찰하한율: ${minSuccessRate}%
 
     [산출 금액]
@@ -83,6 +86,15 @@ export function calculateOptimalBidPrice(
     ※ 예정가격 결정방법: ${priceDecisionMethod}
     ※ 원단위 미만은 안전을 위해 올림 처리되었습니다.
       `.trim();
+
+  return {
+    optimalPrice,
+    minPrice,
+    recommendedPrice,
+    calculation,
+    aValueDetail
+  };
+}
 
   return {
     optimalPrice,
