@@ -83,6 +83,9 @@ export interface BidItem {
   cmmnSpldmdCorpYn?: string; // 공동수급방식명
   mainCnsttyNm?: string; // 주공종명
   indstrytyLmtYn?: string; // 업종제한여부
+  indstrytyMfrcFldEvlYn?:string;  // 업종 주력분야 평가 대상 여부
+  rgnLmtBidLocplcJdgmBssCd?: string; // 지역제한입찰소재지판단기준코드
+  rgnLmtBidLocplcJdgmBssNm?: string; // 지역제한입찰소재지판단기준명
 }
 
 

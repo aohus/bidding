@@ -61,6 +61,9 @@ class BidItem(BaseModel):
     cnstrtsiteRgnNm: Optional[str] = None
     cmmnSpldmdCorpYn: Optional[str] = None
     indstrytyLmtYn: Optional[str] = None
+    indstrytyMfrcFldEvlYn: Optional[str] = None # 업종 주력분야 평가 대상 여부
+    rgnLmtBidLocplcJdgmBssCd: Optional[str] = None # 지역제한입찰소재지판단기준코드
+    rgnLmtBidLocplcJdgmBssNm: Optional[str] = None # 지역제한입찰소재지판단기준명
 
 
 class BidApiResponse(BaseModel):

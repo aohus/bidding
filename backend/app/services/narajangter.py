@@ -7,11 +7,12 @@ from app.schemas.bid import BidApiResponse, BidAValueItem, BidItem, BidSearchPar
 
 logger = logging.getLogger(__name__)
 
+
 class NaraJangterService:
     """Service for interacting with 나라장터 API."""
     
     BASE_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
-    CNSTWK_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwk"
+    REGION_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn"
     # AVALUE_URL removed as per spec
     CNSTWK_BSSAMT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount"
     SERVC_BSSAMT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcBsisAmount"
@@ -74,6 +75,7 @@ class NaraJangterService:
         """Get A-value and base amount information for a specific bid notice."""
         query_params = {
             "bidNtceNo": bidNtceNo,
+            "inqryDiv": 2,
             "numOfRows": 1,
             "pageNo": 1,
             "type": "json",
@@ -82,7 +84,7 @@ class NaraJangterService:
         
         target_url = self.CNSTWK_BSSAMT_URL
         if bid_type and bid_type.lower() in ["servc", "service", "용역"]:
-             target_url = self.SERVC_BSSAMT_URL
+            target_url = self.SERVC_BSSAMT_URL
              
         logger.info(f"NaraJangterService.get_bid_a_value called for bidNtceNo: {bidNtceNo}, type: {bid_type}")
 

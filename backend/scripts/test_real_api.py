@@ -26,14 +26,14 @@ async def verify_api():
     # 1. Search for recent bids (Construction)
     from datetime import datetime, timedelta
     now = datetime.now()
-    start_dt = (now - timedelta(days=7)).strftime("%Y%m%d0000")
+    start_dt = (now - timedelta(days=30)).strftime("%Y%m%d0000")
     end_dt = now.strftime("%Y%m%d2359")
     
     params = BidSearchParams(
         inqryDiv="1",
         inqryBgnDt=start_dt,
         inqryEndDt=end_dt,
-        numOfRows=10,
+        numOfRows=100,
         pageNo=1
     )
     
@@ -46,8 +46,18 @@ async def verify_api():
             print("No items found to test detail API.")
             return
 
-        # 2. Try to get detail for the first item
-        target_bid = search_result.items[0]
+        # 2. Try to get detail for a valid item
+        # Try to find a standard Narajangter bid (starts with year like '20...')
+        target_bid = None
+        for item in search_result.items:
+            if item.bidNtceNo.startswith('20'):
+                target_bid = item
+                break
+        
+        if not target_bid:
+            print("No standard bid (starting with '20') found. Using the first item.")
+            target_bid = search_result.items[0]
+
         print(f"Testing detail API for Bid No: {target_bid.bidNtceNo} ({target_bid.bidNtceNm})")
         
         # We need to guess type or try both if not known. 

@@ -1,0 +1,8 @@
+{
+  "track_id": "main_page_ux_20260209",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-02-09T00:00:00Z",
+  "updated_at": "2026-02-09T00:00:00Z",
+  "description": "메인 페이지 UX/UI 개선 (기본 로딩, 캐싱, 달력 통합, 태그형 다중 검색)"
+}
