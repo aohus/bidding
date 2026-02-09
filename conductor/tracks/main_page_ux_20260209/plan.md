@@ -19,6 +19,6 @@
 - [x] Task: 다중 조건 병렬 호출 로직 구현 b37cc02
     - [x] 입력된 여러 태그에 대해 API를 각각 호출하고 결과를 합산하는 로직 작성
     - [x] 합산된 결과에서 중복 데이터(공고번호 기준) 제거 처리
-- [ ] Task: 저장된 검색 조건 불러오기 UI 구현
-    - [ ] 검색 조건을 선택할 수 있는 모달 창 및 API 연동 구현
+- [x] Task: 저장된 검색 조건 불러오기 UI 구현 ef81398
+    - [x] 검색 조건을 선택할 수 있는 모달 창 및 API 연동 구현
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: 다중 검색 및 관리' (Protocol in workflow.md)
