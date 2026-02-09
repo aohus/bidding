@@ -38,6 +38,81 @@ class BackendApiService {
   }
 
   async searchBids(params: BidSearchParams): Promise<BidApiResponse> {
+    // Split comma-separated values (handle potential spaces)
+    const regions = params.prtcptLmtRgnNm 
+      ? params.prtcptLmtRgnNm.split(',').map(s => s.trim()).filter(s => s) 
+      : [undefined];
+    const industries = params.indstrytyNm 
+      ? params.indstrytyNm.split(',').map(s => s.trim()).filter(s => s) 
+      : [undefined];
+
+    // If single request, use direct call
+    if (regions.length <= 1 && industries.length <= 1) {
+      // Ensure we pass the single value (or undefined) correctly
+      const singleParams = {
+        ...params,
+        prtcptLmtRgnNm: regions[0],
+        indstrytyNm: industries[0],
+      };
+      return this.fetchSingleSearch(singleParams);
+    }
+
+    // Create combinations for multiple requests
+    const combinations: BidSearchParams[] = [];
+    for (const region of regions) {
+      for (const industry of industries) {
+        combinations.push({
+          ...params,
+          prtcptLmtRgnNm: region,
+          indstrytyNm: industry,
+        });
+      }
+    }
+
+    // Execute parallel requests
+    const responses = await Promise.all(combinations.map(p => this.fetchSingleSearch(p)));
+
+    // Merge results
+    const mergedItems: any[] = [];
+    const seenIds = new Set();
+    let approximateTotalCount = 0;
+
+    for (const res of responses) {
+      approximateTotalCount += res.response.body.totalCount || 0;
+      const items = res.response.body.items || [];
+      for (const item of items) {
+        if (!seenIds.has(item.bidNtceNo)) {
+          seenIds.add(item.bidNtceNo);
+          mergedItems.push(item);
+        }
+      }
+    }
+
+    // Sort merged results by registration date (descending)
+    mergedItems.sort((a, b) => {
+      // Assuming rgstDt format YYYY-MM-DD HH:MM:SS or similar sortable string
+      if (!a.rgstDt) return 1;
+      if (!b.rgstDt) return -1;
+      return b.rgstDt.localeCompare(a.rgstDt);
+    });
+
+    return {
+      response: {
+        header: {
+          resultCode: '00',
+          resultMsg: 'SUCCESS',
+        },
+        body: {
+          items: mergedItems,
+          numOfRows: params.numOfRows || 100,
+          pageNo: params.pageNo || 1,
+          totalCount: approximateTotalCount, // Approximation
+        },
+      },
+    };
+  }
+
+  private async fetchSingleSearch(params: BidSearchParams): Promise<BidApiResponse> {
     const searchParams = {
       inqryDiv: params.inqryDiv,
       inqryBgnDt: params.inqryBgnDt,
