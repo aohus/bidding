@@ -16,9 +16,9 @@
     - [x] 백엔드 변경 사항에 맞춰 `types/bid.ts` 내 인터페이스 수정
 - [x] Task: 입찰가 계산 로직 수정 (`bidCalculations.ts`) de1d27a
     - [x] `budgetPrice` 의존성 제거 및 `bssamt` 기반 계산 로직 구현
-- [ ] Task: `BidCalculator.tsx` UI 업데이트
-    - [ ] 계산 입력 필드 및 결과 표시 UI 수정
-    - [ ] 추가된 세부 정보(보험료 등) 표시 영역 추가
+- [x] Task: `BidCalculator.tsx` UI 업데이트 d520d7e
+    - [x] 계산 입력 필드 및 결과 표시 UI 수정
+    - [x] 추가된 세부 정보(보험료 등) 표시 영역 추가
 - [ ] Task: Conductor - User Manual Verification 'Frontend Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Integration & QA
