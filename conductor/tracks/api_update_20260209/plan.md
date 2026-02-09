@@ -1,8 +1,8 @@
 # Implementation Plan - API Update & Bid Calc Refactor
 
 ## Phase 1: Backend Implementation
-- [ ] Task: `BidAValueItem` Pydantic 모델 업데이트
-    - [ ] 새로운 API 매핑 테이블에 맞춰 스키마 정의 (`bssamt` 필수 포함)
+- [x] Task: `BidAValueItem` Pydantic 모델 업데이트 5f4bc14
+    - [x] 새로운 API 매핑 테이블에 맞춰 스키마 정의 (`bssamt` 필수 포함)
 - [ ] Task: `narajangter.py` 서비스 로직 수정
     - [ ] `AVALUE_URL` 상수 제거 및 공사/용역 URL 상수 정의
     - [ ] 입찰 공고 유형에 따라 적절한 URL을 호출하도록 로직 분기 처리
