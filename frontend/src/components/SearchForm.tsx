@@ -7,44 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BidSearchParams } from '@/types/bid';
 import { backendApi } from '@/lib/backendApi';
 import { toast } from 'sonner';
-import { Save } from 'lucide-react';
-
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BidSearchParams } from '@/types/bid';
-import { backendApi } from '@/lib/backendApi';
-import { toast } from 'sonner';
-import { Save, Calendar as CalendarIcon } from 'lucide-react';
-import { format } from 'date-fns';
-import { DateRange } from 'react-day-picker';
-import { cn } from '@/lib/utils';
-import { Calendar } from '@/components/ui/calendar';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-
-interface SearchFormProps {
-  onSearch: (params: BidSearchParams, page?: number) => void;
-  isLoading: boolean;
-  initialValues?: BidSearchParams | null;
-}
-
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BidSearchParams } from '@/types/bid';
-import { backendApi } from '@/lib/backendApi';
-import { toast } from 'sonner';
-import { Save, Calendar as CalendarIcon } from 'lucide-react';
+import { Save, Calendar as CalendarIcon, FolderOpen, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
@@ -55,6 +18,14 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { TagInput } from './ui/tag-input';
+import { SavedSearchList } from './SavedSearchList';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 interface SearchFormProps {
   onSearch: (params: BidSearchParams, page?: number) => void;
@@ -74,56 +45,75 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
   const [priceEnd, setPriceEnd] = useState('');
   const [excludeClosed, setExcludeClosed] = useState<'Y' | 'N'>('N');
 
+  const [isSavedSearchOpen, setIsSavedSearchOpen] = useState(false);
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+
   // Load saved preferences or initial values on mount/update
   useEffect(() => {
     if (initialValues) {
-      setInqryDiv(initialValues.inqryDiv);
-      
-      const parseDate = (dtStr: string) => {
-        if (dtStr.length < 8) return undefined;
-        const y = parseInt(dtStr.substring(0, 4), 10);
-        const m = parseInt(dtStr.substring(4, 6), 10) - 1;
-        const d = parseInt(dtStr.substring(6, 8), 10);
-        return new Date(y, m, d);
-      };
-
-      if (initialValues.inqryBgnDt && initialValues.inqryEndDt) {
-        setDate({
-          from: parseDate(initialValues.inqryBgnDt),
-          to: parseDate(initialValues.inqryEndDt),
-        });
-      }
-      
-      setRegions(initialValues.prtcptLmtRgnNm ? initialValues.prtcptLmtRgnNm.split(',').map(s => s.trim()) : []);
-      setIndustries(initialValues.indstrytyNm ? initialValues.indstrytyNm.split(',').map(s => s.trim()) : []);
-      setPriceStart(initialValues.presmptPrceBgn || '');
-      setPriceEnd(initialValues.presmptPrceEnd || '');
-      setExcludeClosed(initialValues.bidClseExcpYn || 'N');
+      applyFilters(initialValues);
     } else {
       loadPreferences();
     }
   }, [initialValues]);
 
+  const applyFilters = (filters: any) => {
+      if (filters.inqryDiv) setInqryDiv(filters.inqryDiv as '1' | '2');
+      
+      // Handle Date formats: YYYYMMDDHHMM or ISO string
+      let fromDate, toDate;
+      
+      if (filters.startDate) {
+          fromDate = new Date(filters.startDate);
+      } else if (filters.inqryBgnDt && filters.inqryBgnDt.length >= 8) {
+          const y = parseInt(filters.inqryBgnDt.substring(0, 4));
+          const m = parseInt(filters.inqryBgnDt.substring(4, 6)) - 1;
+          const d = parseInt(filters.inqryBgnDt.substring(6, 8));
+          fromDate = new Date(y, m, d);
+      }
+
+      if (filters.endDate) {
+          toDate = new Date(filters.endDate);
+      } else if (filters.inqryEndDt && filters.inqryEndDt.length >= 8) {
+          const y = parseInt(filters.inqryEndDt.substring(0, 4));
+          const m = parseInt(filters.inqryEndDt.substring(4, 6)) - 1;
+          const d = parseInt(filters.inqryEndDt.substring(6, 8));
+          toDate = new Date(y, m, d);
+      }
+
+      if (fromDate && toDate) {
+          setDate({ from: fromDate, to: toDate });
+      }
+
+      // Handle arrays or strings
+      if (filters.regions) {
+          setRegions(filters.regions);
+      } else if (filters.prtcptLmtRgnNm) {
+          setRegions(filters.prtcptLmtRgnNm.split(',').map((s: string) => s.trim()));
+      } else {
+          setRegions([]);
+      }
+
+      if (filters.industries) {
+          setIndustries(filters.industries);
+      } else if (filters.indstrytyNm) {
+          setIndustries(filters.indstrytyNm.split(',').map((s: string) => s.trim()));
+      } else {
+          setIndustries([]);
+      }
+
+      setPriceStart(filters.priceStart || filters.presmptPrceBgn || '');
+      setPriceEnd(filters.priceEnd || filters.presmptPrceEnd || '');
+      setExcludeClosed(filters.excludeClosed || filters.bidClseExcpYn || 'N');
+  };
+
   const loadPreferences = async () => {
     try {
       const preference = await backendApi.getPreference();
       if (preference && preference.search_conditions) {
-        const conditions = preference.search_conditions;
-        if (conditions.inqryDiv) setInqryDiv(conditions.inqryDiv as '1' | '2');
-        
-        if (conditions.startDate && conditions.endDate) {
-            setDate({
-                from: new Date(conditions.startDate as string),
-                to: new Date(conditions.endDate as string)
-            });
-        }
-
-        if (conditions.regions) setRegions(conditions.regions as string[]);
-        if (conditions.industries) setIndustries(conditions.industries as string[]);
-        if (conditions.priceStart) setPriceStart(conditions.priceStart as string);
-        if (conditions.priceEnd) setPriceEnd(conditions.priceEnd as string);
-        if (conditions.excludeClosed) setExcludeClosed(conditions.excludeClosed as 'Y' | 'N' );
-        toast.success('저장된 검색 조건을 불러왔습니다');
+        applyFilters(preference.search_conditions);
+        toast.success('기본 검색 조건을 불러왔습니다');
       }
     } catch (error) {
       // Silently fail if no preferences exist
@@ -131,23 +121,40 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
     }
   };
 
-  const savePreferences = async () => {
+  const saveAsDefault = async () => {
     try {
-      await backendApi.savePreference({
-        inqryDiv,
-        startDate: date?.from?.toISOString(),
-        endDate: date?.to?.toISOString(),
-        regions,
-        industries,
-        priceStart,
-        priceEnd,
-        excludeClosed,
-      });
-      toast.success('검색 조건이 저장되었습니다');
+      await backendApi.savePreference(getCurrentFilters());
+      toast.success('기본 검색 조건으로 저장되었습니다');
     } catch (error) {
-      toast.error('검색 조건 저장 실패');
+      toast.error('저장 실패');
     }
   };
+
+  const saveAsNew = async () => {
+    if (!saveName.trim()) {
+        toast.error('검색 조건 이름을 입력해주세요');
+        return;
+    }
+    try {
+        await backendApi.createSavedSearch(saveName, getCurrentFilters());
+        toast.success('새 검색 조건이 저장되었습니다');
+        setIsSaveDialogOpen(false);
+        setSaveName('');
+    } catch (error) {
+        toast.error('저장 실패');
+    }
+  };
+
+  const getCurrentFilters = () => ({
+    inqryDiv,
+    startDate: date?.from?.toISOString(),
+    endDate: date?.to?.toISOString(),
+    regions,
+    industries,
+    priceStart,
+    priceEnd,
+    excludeClosed,
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,7 +189,15 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
   return (
     <Card>
       <CardHeader>
-        <CardTitle>입찰 공고 검색</CardTitle>
+        <div className="flex justify-between items-center">
+            <CardTitle>입찰 공고 검색</CardTitle>
+            <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setIsSavedSearchOpen(true)}>
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    불러오기
+                </Button>
+            </div>
+        </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -307,12 +322,46 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
             <Button type="submit" className="flex-1" disabled={isLoading}>
               {isLoading ? '검색 중...' : '검색'}
             </Button>
-            <Button type="button" variant="outline" onClick={savePreferences}>
+            <Button type="button" variant="outline" onClick={saveAsDefault}>
               <Save className="mr-2 h-4 w-4" />
-              조건 저장
+              기본값 저장
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setIsSaveDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              새로 저장
             </Button>
           </div>
         </form>
+
+        <SavedSearchList 
+            isOpen={isSavedSearchOpen}
+            onClose={() => setIsSavedSearchOpen(false)}
+            onSelect={(filters) => {
+                applyFilters(filters);
+                toast.success('검색 조건을 불러왔습니다');
+            }}
+        />
+
+        <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>새 검색 조건 저장</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                    <Label htmlFor="saveName">조건 이름</Label>
+                    <Input 
+                        id="saveName" 
+                        value={saveName} 
+                        onChange={(e) => setSaveName(e.target.value)} 
+                        placeholder="예: 서울 조경 공사"
+                    />
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>취소</Button>
+                    <Button onClick={saveAsNew}>저장</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
