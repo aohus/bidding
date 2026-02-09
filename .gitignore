@@ -49,3 +49,5 @@ test-results/
 pnpm-lock.yaml
 *.pyc
 __pycache__
+
+_입찰/

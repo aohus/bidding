@@ -1,16 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 from typing import List
+
+from app.api.auth import get_current_user
 from app.db.database import get_db
-from app.models.user import User, UserPreference, SavedSearch
+from app.models.user import SavedSearch, User, UserPreference
 from app.schemas.user import (
+    SavedSearchCreate,
+    SavedSearchResponse,
     UserPreferenceCreate,
     UserPreferenceResponse,
-    SavedSearchCreate,
-    SavedSearchResponse
 )
-from app.api.auth import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/preferences", tags=["User Preferences"])
 

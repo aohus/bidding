@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+import logging
 from typing import List
+
+from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.user import User, UserBookmark
-from app.schemas.bid import BidSearchParams, BidApiResponse
+from app.schemas.bid import BidApiResponse, BidSearchParams, BidAValueItem
 from app.schemas.user import BookmarkCreate, BookmarkResponse
-from app.services.naramarket import naramarket_service
-from app.api.auth import get_current_user
+from app.services.narajangter import narajangter_service
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bids", tags=["Bid Notices"])
 
 
@@ -18,13 +21,39 @@ async def search_bids(
     current_user: User = Depends(get_current_user)
 ):
     """Search for bid notices using 나라장터 API."""
+    logger.info(f"search_bids called by user: {current_user.username} with params: {search_params}")
     try:
-        result = await naramarket_service.search_bids(search_params)
+        result = await narajangter_service.search_bids(search_params)
         return result
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to search bids: {str(e)}"
+        )
+
+
+@router.get("/a-value/{bidNtceNo}/", response_model=BidAValueItem)
+async def get_bid_a_value(
+    bidNtceNo: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get A-value information for a specific bid notice."""
+    logger.info(f"get_bid_a_value called by user: {current_user.username} for bidNtceNo: {bidNtceNo}")
+    try:
+        result = await narajangter_service.get_bid_a_value(bidNtceNo)
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="A-value information not found"
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching A-value: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch A-value information: {str(e)}"
         )
 
 

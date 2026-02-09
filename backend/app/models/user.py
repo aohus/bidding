@@ -1,8 +1,9 @@
-from sqlalchemy import Column, String, DateTime, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func
 import uuid
+
 from app.db.database import Base
+from sqlalchemy import Boolean, Column, DateTime, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.sql import func
 
 
 class User(Base):
@@ -22,6 +23,12 @@ class UserPreference(Base):
     preference_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     search_conditions = Column(JSONB, nullable=False)
+    
+    # Email notification settings
+    email_notifications_enabled = Column(Boolean, default=True, nullable=False)
+    notification_frequency = Column(String(20), default='daily', nullable=False)  # realtime, daily, weekly
+    last_notification_at = Column(DateTime(timezone=True), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>환영합니다</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+        }
+        .header h1 {
+            color: #3b82f6;
+            margin: 0;
+            font-size: 28px;
+        }
+        .content {
+            padding: 20px 0;
+        }
+        .feature-list {
+            background-color: #f9fafb;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .feature-item {
+            margin: 15px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        .feature-item:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #3b82f6;
+            font-weight: bold;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 환영합니다!</h1>
+        </div>
+        
+        <div class="content">
+            <p><strong>{{ username }}</strong>님, 입찰 정보 시스템에 가입해 주셔서 감사합니다!</p>
+            
+            <p>이제 다음과 같은 기능을 이용하실 수 있습니다:</p>
+            
+            <div class="feature-list">
+                <div class="feature-item">실시간 입찰 공고 검색</div>
+                <div class="feature-item">맞춤형 검색 조건 저장</div>
+                <div class="feature-item">관심 입찰 공고 북마크</div>
+                <div class="feature-item">새로운 입찰 공고 이메일 알림</div>
+                <div class="feature-item">최적 입찰가 계산</div>
+            </div>
+            
+            <p>지금 바로 시작해보세요!</p>
+            
+            <div style="text-align: center;">
+                <a href="http://localhost:5174" class="button">입찰 정보 시스템 시작하기</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>문의사항이 있으시면 언제든지 연락 주세요.</p>
+            <p>© 2025 입찰 정보 시스템. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

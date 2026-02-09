@@ -1,13 +1,14 @@
-from pydantic_settings import BaseSettings
 from typing import List
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/bidding_db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bidding_db"
     
     # API Keys
-    NARAMARKET_SERVICE_KEY: str
+    NARAJANGTER_SERVICE_KEY: str
     
     # Security
     SECRET_KEY: str
@@ -15,7 +16,19 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174"
+    ALLOWED_ORIGINS: str = "http://localhost:5432,http://localhost:8009"
+    
+    # Email Configuration
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = ""
+    FROM_NAME: str = "입찰 정보 시스템"
+    
+    # Notification Settings
+    ENABLE_EMAIL_NOTIFICATIONS: bool = True
+    NOTIFICATION_CHECK_INTERVAL: int = 3600  # seconds (1 hour)
     
     @property
     def cors_origins(self) -> List[str]:

@@ -7,8 +7,8 @@
     - [x] `AVALUE_URL` 상수 제거 및 공사/용역 URL 상수 정의
     - [x] 입찰 공고 유형에 따라 적절한 URL을 호출하도록 로직 분기 처리
     - [x] API 응답 파싱 및 에러 핸들링
-- [ ] Task: API 응답 테스트 확인
-    - [ ] 실제 나라장터 API 호출 테스트 및 데이터 검증
+- [x] Task: API 응답 테스트 확인
+    - [x] 실제 나라장터 API 호출 테스트 및 데이터 검증
 - [ ] Task: Conductor - User Manual Verification 'Backend Implementation' (Protocol in workflow.md)
 
 ## Phase 2: Frontend Implementation

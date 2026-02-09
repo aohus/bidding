@@ -39,9 +39,10 @@ cp .env.example .env
 ```
 
 Edit `.env`:
+
 ```
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/bidding_db
-NARAMARKET_SERVICE_KEY=your_actual_service_key
+NARAJANGTER_SERVICE_KEY=your_actual_service_key
 SECRET_KEY=generate_a_secure_random_key
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
 ```
@@ -63,6 +64,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The API will be available at:
+
 - API: http://localhost:8000
 - Interactive docs: http://localhost:8000/docs
 - Alternative docs: http://localhost:8000/redoc
@@ -70,11 +72,13 @@ The API will be available at:
 ## API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/register` - Register new user
 - `POST /api/auth/login` - Login and get access token
 - `GET /api/auth/me` - Get current user info
 
 ### User Preferences
+
 - `POST /api/preferences/` - Create/update default search preferences
 - `GET /api/preferences/` - Get default search preferences
 - `DELETE /api/preferences/` - Delete default search preferences
@@ -83,6 +87,7 @@ The API will be available at:
 - `DELETE /api/preferences/searches/{search_id}` - Delete saved search
 
 ### Bid Notices
+
 - `POST /api/bids/search` - Search bid notices (requires auth)
 - `POST /api/bids/bookmarks` - Create bookmark
 - `GET /api/bids/bookmarks` - Get all bookmarks
@@ -130,12 +135,14 @@ gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ## Testing
 
 The API can be tested using:
+
 - Interactive docs at `/docs`
 - curl commands
 - Postman or similar tools
 - Frontend application
 
 Example curl command:
+
 ```bash
 # Register user
 curl -X POST "http://localhost:8000/api/auth/register" \
