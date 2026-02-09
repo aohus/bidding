@@ -8,12 +8,26 @@ import Header from '@/components/Header';
 import { backendApi } from '@/lib/backendApi';
 import { AuthService } from '@/lib/auth';
 import { toast } from 'sonner';
+import { useSearchState } from '@/hooks/useSearchState';
 
 
 export default function Index() {
   // --- 인증 및 기본 상태 ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [bids, setBids] = useState<BidItem[]>([]);
+  
+  // Custom Hook for Search State (LocalStorage persistence)
+  const {
+    searchParams: currentSearchParams,
+    setSearchParams: setCurrentSearchParams,
+    bids,
+    setBids,
+    totalCount,
+    setTotalCount,
+    currentPage,
+    setCurrentPage,
+    isLoaded
+  } = useSearchState();
+
   const [isLoading, setIsLoading] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false); // A값 조회 전용 로딩
 
@@ -22,11 +36,9 @@ export default function Index() {
   const [selectedAValue, setSelectedAValue] = useState<BidAValueItem | null>(null);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   
-  // --- 페이지네이션 상태 ---
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [currentSearchParams, setCurrentSearchParams] = useState<BidSearchParams | null>(null);
+  // --- 페이지네이션 상태 (Derived) ---
+  const numOfRows = currentSearchParams?.numOfRows || 100;
+  const totalPages = Math.ceil(totalCount / numOfRows) || 0;
 
   // 인증 체크
   useEffect(() => {
@@ -48,24 +60,21 @@ export default function Index() {
       const response = await backendApi.searchBids(searchParams);
       const items = response.response.body.items || [];
       const total = response.response.body.totalCount || 0;
-      const numOfRows = response.response.body.numOfRows || 100;
       
       setBids(items);
       setTotalCount(total);
       setCurrentPage(page);
-      setTotalPages(Math.ceil(total / numOfRows));
       setCurrentSearchParams(params);
       
       if (items.length === 0) {
         toast.info('검색 결과가 없습니다');
       } else {
-        toast.success(`${total.toLocaleString()}개의 입찰 공고를 찾았습니다 (${page}/${Math.ceil(total / numOfRows)} 페이지)`);
+        toast.success(`${total.toLocaleString()}개의 입찰 공고를 찾았습니다 (${page}/${Math.ceil(total / 100)} 페이지)`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '검색 실패');
       setBids([]);
       setTotalCount(0);
-      setTotalPages(0);
     } finally {
       setIsLoading(false);
     }
@@ -132,7 +141,6 @@ export default function Index() {
     setBids([]);
     setCurrentPage(1);
     setTotalCount(0);
-    setTotalPages(0);
     setCurrentSearchParams(null);
     toast.success('로그아웃되었습니다');
   };
@@ -142,6 +150,9 @@ export default function Index() {
     return <AuthForm onSuccess={handleAuthSuccess} />;
   }
 
+  // 로딩 전에는 아무것도 보여주지 않음 (깜빡임 방지)
+  if (!isLoaded) return null;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header onLogout={handleLogout} />
@@ -149,7 +160,10 @@ export default function Index() {
       <main className="container mx-auto px-4 py-8">
         <div className="space-y-6">
           {/* 검색 필터 영역 */}
-          <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+          {/* SearchForm에 초기값을 전달해야 함. 현재 SearchForm은 내부 상태를 가짐. 
+              SearchForm을 수정하여 initialValues를 받도록 하거나, currentSearchParams를 전달해야 함.
+              SearchForm 코드를 확인해야 함. */}
+          <SearchForm onSearch={handleSearch} isLoading={isLoading} initialValues={currentSearchParams} />
           
           {/* 검색 결과 테이블 영역 */}
           <div className="bg-white rounded-lg shadow overflow-hidden">

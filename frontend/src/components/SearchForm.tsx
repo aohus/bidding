@@ -12,9 +12,10 @@ import { Save } from 'lucide-react';
 interface SearchFormProps {
   onSearch: (params: BidSearchParams, page?: number) => void;
   isLoading: boolean;
+  initialValues?: BidSearchParams | null;
 }
 
-export default function SearchForm({ onSearch, isLoading }: SearchFormProps) {
+export default function SearchForm({ onSearch, isLoading, initialValues }: SearchFormProps) {
   const [inqryDiv, setInqryDiv] = useState<'1' | '2'>('1');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -24,23 +25,44 @@ export default function SearchForm({ onSearch, isLoading }: SearchFormProps) {
   const [priceEnd, setPriceEnd] = useState('');
   const [excludeClosed, setExcludeClosed] = useState<'Y' | 'N'>('N');
 
-  // Load saved preferences on mount
+  // Load saved preferences or initial values on mount/update
   useEffect(() => {
-    loadPreferences();
-  }, []);
+    if (initialValues) {
+      setInqryDiv(initialValues.inqryDiv);
+      if (initialValues.inqryBgnDt && initialValues.inqryBgnDt.length >= 8) {
+        const y = initialValues.inqryBgnDt.substring(0, 4);
+        const m = initialValues.inqryBgnDt.substring(4, 6);
+        const d = initialValues.inqryBgnDt.substring(6, 8);
+        setStartDate(`${y}-${m}-${d}`);
+      }
+      if (initialValues.inqryEndDt && initialValues.inqryEndDt.length >= 8) {
+        const y = initialValues.inqryEndDt.substring(0, 4);
+        const m = initialValues.inqryEndDt.substring(4, 6);
+        const d = initialValues.inqryEndDt.substring(6, 8);
+        setEndDate(`${y}-${m}-${d}`);
+      }
+      setRegionName(initialValues.prtcptLmtRgnNm || '');
+      setIndustryName(initialValues.indstrytyNm || '');
+      setPriceStart(initialValues.presmptPrceBgn || '');
+      setPriceEnd(initialValues.presmptPrceEnd || '');
+      setExcludeClosed(initialValues.bidClseExcpYn || 'N');
+    } else {
+      loadPreferences();
+    }
+  }, [initialValues]);
 
   const loadPreferences = async () => {
     try {
       const preference = await backendApi.getPreference();
       if (preference && preference.search_conditions) {
         const conditions = preference.search_conditions;
-        if (conditions.inqryDiv) setInqryDiv(conditions.inqryDiv);
-        if (conditions.startDate) setStartDate(conditions.startDate);
-        if (conditions.endDate) setEndDate(conditions.endDate);
-        if (conditions.regionName) setRegionName(conditions.regionName);
-        if (conditions.industryName) setIndustryName(conditions.industryName);
-        if (conditions.priceStart) setPriceStart(conditions.priceStart);
-        if (conditions.priceEnd) setPriceEnd(conditions.priceEnd);
+        if (conditions.inqryDiv) setInqryDiv(conditions.inqryDiv as '1' | '2');
+        if (conditions.startDate) setStartDate(conditions.startDate as string);
+        if (conditions.endDate) setEndDate(conditions.endDate as string);
+        if (conditions.regionName) setRegionName(conditions.regionName as string);
+        if (conditions.industryName) setIndustryName(conditions.industryName as string);
+        if (conditions.priceStart) setPriceStart(conditions.priceStart as string);
+        if (conditions.priceEnd) setPriceEnd(conditions.priceEnd as string);
         if (conditions.excludeClosed) setExcludeClosed(conditions.excludeClosed as 'Y' | 'N' );
         toast.success('저장된 검색 조건을 불러왔습니다');
       }
