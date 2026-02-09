@@ -11,7 +11,7 @@
     - [x] 실제 나라장터 API 호출 테스트 및 데이터 검증
 - [x] Task: Conductor - User Manual Verification 'Backend Implementation' (Protocol in workflow.md)
 
-## Phase 2: Frontend Implementation
+## Phase 2: Frontend Implementation [checkpoint: 8b5fc04]
 - [x] Task: 타입 정의 업데이트 826c247
     - [x] 백엔드 변경 사항에 맞춰 `types/bid.ts` 내 인터페이스 수정
 - [x] Task: 입찰가 계산 로직 수정 (`bidCalculations.ts`) de1d27a
@@ -19,9 +19,9 @@
 - [x] Task: `BidCalculator.tsx` UI 업데이트 d520d7e
     - [x] 계산 입력 필드 및 결과 표시 UI 수정
     - [x] 추가된 세부 정보(보험료 등) 표시 영역 추가
-- [ ] Task: Conductor - User Manual Verification 'Frontend Implementation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Frontend Implementation' (Protocol in workflow.md)
 
 ## Phase 3: Integration & QA
-- [ ] Task: 통합 테스트
-    - [ ] 공고 검색 -> 상세 조회 -> 입찰가 계산 전체 흐름 테스트
-- [ ] Task: Conductor - User Manual Verification 'Integration & QA' (Protocol in workflow.md)
+- [x] Task: 통합 테스트 9dfeffe
+    - [x] 공고 검색 -> 상세 조회 -> 입찰가 계산 전체 흐름 테스트
+- [x] Task: Conductor - User Manual Verification 'Integration & QA' (Protocol in workflow.md)
