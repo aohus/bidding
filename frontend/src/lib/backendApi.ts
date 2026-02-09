@@ -214,7 +214,7 @@ class BackendApiService {
   }
 
   async createSavedSearch(searchName: string, filters: Record<string, unknown>): Promise<SavedSearch> {
-    const response = await fetch(`${API_BASE_URL}/saved-searches`, {
+    const response = await fetch(`${API_BASE_URL}/preferences/searches`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ search_name: searchName, filters }),
@@ -229,7 +229,7 @@ class BackendApiService {
   }
 
   async getSavedSearches(): Promise<SavedSearch[]> {
-    const response = await fetch(`${API_BASE_URL}/saved-searches`, {
+    const response = await fetch(`${API_BASE_URL}/preferences/searches`, {
       headers: this.getAuthHeaders(),
     });
 
@@ -242,7 +242,7 @@ class BackendApiService {
   }
 
   async deleteSavedSearch(searchId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/saved-searches/${searchId}`, {
+    const response = await fetch(`${API_BASE_URL}/preferences/searches/${searchId}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });

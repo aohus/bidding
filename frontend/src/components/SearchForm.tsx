@@ -59,7 +59,11 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
   }, [initialValues]);
 
   const applyFilters = (filters: any) => {
-      if (filters.inqryDiv) setInqryDiv(filters.inqryDiv as '1' | '2');
+      if (filters.inqryDiv === '1' || filters.inqryDiv === '2') {
+          setInqryDiv(filters.inqryDiv);
+      } else {
+          setInqryDiv('1');
+      }
       
       // Handle Date formats: YYYYMMDDHHMM or ISO string
       let fromDate, toDate;
