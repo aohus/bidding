@@ -35,14 +35,41 @@ interface SearchFormProps {
   initialValues?: BidSearchParams | null;
 }
 
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BidSearchParams } from '@/types/bid';
+import { backendApi } from '@/lib/backendApi';
+import { toast } from 'sonner';
+import { Save, Calendar as CalendarIcon } from 'lucide-react';
+import { format } from 'date-fns';
+import { DateRange } from 'react-day-picker';
+import { cn } from '@/lib/utils';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { TagInput } from './ui/tag-input';
+
+interface SearchFormProps {
+  onSearch: (params: BidSearchParams, page?: number) => void;
+  isLoading: boolean;
+  initialValues?: BidSearchParams | null;
+}
+
 export default function SearchForm({ onSearch, isLoading, initialValues }: SearchFormProps) {
   const [inqryDiv, setInqryDiv] = useState<'1' | '2'>('1');
   const [date, setDate] = useState<DateRange | undefined>({
     from: undefined,
     to: undefined,
   });
-  const [regionName, setRegionName] = useState('');
-  const [industryName, setIndustryName] = useState('');
+  const [regions, setRegions] = useState<string[]>([]);
+  const [industries, setIndustries] = useState<string[]>([]);
   const [priceStart, setPriceStart] = useState('');
   const [priceEnd, setPriceEnd] = useState('');
   const [excludeClosed, setExcludeClosed] = useState<'Y' | 'N'>('N');
@@ -67,8 +94,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
         });
       }
       
-      setRegionName(initialValues.prtcptLmtRgnNm || '');
-      setIndustryName(initialValues.indstrytyNm || '');
+      setRegions(initialValues.prtcptLmtRgnNm ? initialValues.prtcptLmtRgnNm.split(',').map(s => s.trim()) : []);
+      setIndustries(initialValues.indstrytyNm ? initialValues.indstrytyNm.split(',').map(s => s.trim()) : []);
       setPriceStart(initialValues.presmptPrceBgn || '');
       setPriceEnd(initialValues.presmptPrceEnd || '');
       setExcludeClosed(initialValues.bidClseExcpYn || 'N');
@@ -91,8 +118,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
             });
         }
 
-        if (conditions.regionName) setRegionName(conditions.regionName as string);
-        if (conditions.industryName) setIndustryName(conditions.industryName as string);
+        if (conditions.regions) setRegions(conditions.regions as string[]);
+        if (conditions.industries) setIndustries(conditions.industries as string[]);
         if (conditions.priceStart) setPriceStart(conditions.priceStart as string);
         if (conditions.priceEnd) setPriceEnd(conditions.priceEnd as string);
         if (conditions.excludeClosed) setExcludeClosed(conditions.excludeClosed as 'Y' | 'N' );
@@ -110,8 +137,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
         inqryDiv,
         startDate: date?.from?.toISOString(),
         endDate: date?.to?.toISOString(),
-        regionName,
-        industryName,
+        regions,
+        industries,
         priceStart,
         priceEnd,
         excludeClosed,
@@ -141,8 +168,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       inqryDiv,
       inqryBgnDt: formatDateTime(date.from),
       inqryEndDt: formatDateTime(date.to, true),
-      prtcptLmtRgnNm: regionName || undefined,
-      indstrytyNm: industryName || undefined,
+      prtcptLmtRgnNm: regions.length > 0 ? regions.join(',') : undefined,
+      indstrytyNm: industries.length > 0 ? industries.join(',') : undefined,
       presmptPrceBgn: priceStart || undefined,
       presmptPrceEnd: priceEnd || undefined,
       bidClseExcpYn: excludeClosed || undefined,
@@ -233,24 +260,20 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="regionName">참가제한지역명 (선택)</Label>
-              <Input
-                id="regionName"
-                type="text"
+              <Label>참가제한지역명 (선택)</Label>
+              <TagInput
                 placeholder="예: 서울특별시"
-                value={regionName}
-                onChange={(e) => setRegionName(e.target.value)}
+                tags={regions}
+                onChange={setRegions}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="industryName">업종명 (선택)</Label>
-              <Input
-                id="industryName"
-                type="text"
+              <Label>업종명 (선택)</Label>
+              <TagInput
                 placeholder="예: 토목건축"
-                value={industryName}
-                onChange={(e) => setIndustryName(e.target.value)}
+                tags={industries}
+                onChange={setIndustries}
               />
             </div>
 
