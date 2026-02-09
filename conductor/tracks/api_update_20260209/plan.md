@@ -14,8 +14,8 @@
 ## Phase 2: Frontend Implementation
 - [x] Task: 타입 정의 업데이트 826c247
     - [x] 백엔드 변경 사항에 맞춰 `types/bid.ts` 내 인터페이스 수정
-- [ ] Task: 입찰가 계산 로직 수정 (`bidCalculations.ts`)
-    - [ ] `budgetPrice` 의존성 제거 및 `bssamt` 기반 계산 로직 구현
+- [x] Task: 입찰가 계산 로직 수정 (`bidCalculations.ts`) de1d27a
+    - [x] `budgetPrice` 의존성 제거 및 `bssamt` 기반 계산 로직 구현
 - [ ] Task: `BidCalculator.tsx` UI 업데이트
     - [ ] 계산 입력 필드 및 결과 표시 UI 수정
     - [ ] 추가된 세부 정보(보험료 등) 표시 영역 추가
