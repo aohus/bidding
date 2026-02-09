@@ -95,12 +95,3 @@ export function calculateOptimalBidPrice(
     aValueDetail
   };
 }
-
-  return {
-    optimalPrice,
-    minPrice,
-    recommendedPrice,
-    calculation,
-    aValueDetail
-  };
-}
