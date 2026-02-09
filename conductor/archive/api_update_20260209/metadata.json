@@ -1,0 +1,8 @@
+{
+  "track_id": "api_update_20260209",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-02-09T05:09:26Z",
+  "updated_at": "2026-02-09T05:09:26Z",
+  "description": "나라장터 API URL 변경 및 기초금액(bssamt) 기반 입찰가 계산 로직 수정"
+}
