@@ -38,6 +38,14 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
         day_hidden: 'invisible',
         ...classNames,
       }}
+      modifiers={{
+        sunday: { dayOfWeek: [0] },
+        saturday: { dayOfWeek: [6] },
+      }}
+      modifiersClassNames={{
+        sunday: 'text-red-500',
+        saturday: 'text-blue-500',
+      }}
       components={{
         IconLeft: ({ ..._props }) => <ChevronLeft className="h-4 w-4" />,
         IconRight: ({ ..._props }) => <ChevronRight className="h-4 w-4" />,

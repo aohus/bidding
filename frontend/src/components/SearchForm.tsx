@@ -9,6 +9,7 @@ import { backendApi } from '@/lib/backendApi';
 import { toast } from 'sonner';
 import { Save, Calendar as CalendarIcon, FolderOpen, Plus } from 'lucide-react';
 import { format } from 'date-fns';
+import { ko } from "date-fns/locale";
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
 import { Calendar } from '@/components/ui/calendar';
@@ -255,7 +256,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
                       defaultMonth={date?.from}
                       selected={date}
                       onSelect={setDate}
-                      numberOfMonths={2}
+                      numberOfMonths={1}
+                      locale={ko}
                     />
                   </PopoverContent>
                 </Popover>
