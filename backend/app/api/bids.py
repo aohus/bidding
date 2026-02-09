@@ -35,12 +35,13 @@ async def search_bids(
 @router.get("/a-value/{bidNtceNo}/", response_model=BidAValueItem)
 async def get_bid_a_value(
     bidNtceNo: str,
+    bid_type: str = "cnstwk",
     current_user: User = Depends(get_current_user)
 ):
     """Get A-value information for a specific bid notice."""
-    logger.info(f"get_bid_a_value called by user: {current_user.username} for bidNtceNo: {bidNtceNo}")
+    logger.info(f"get_bid_a_value called by user: {current_user.username} for bidNtceNo: {bidNtceNo} with type: {bid_type}")
     try:
-        result = await narajangter_service.get_bid_a_value(bidNtceNo)
+        result = await narajangter_service.get_bid_a_value(bidNtceNo, bid_type=bid_type)
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
