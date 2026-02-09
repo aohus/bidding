@@ -96,16 +96,38 @@ export interface BidCalculationResult {
 
 export interface BidAValueItem {
   bidNtceNo: string;        // 입찰공고번호
-  basePrceAamt: string;     // 기초금액 A값 (가장 중요)
-  sftyMngcst: string;       // 산업안전보건관리비
-  sftyChckMngcst: string;   //	안전관리비
-  rtrfundNon: string;       //	퇴직공제부금비
-  mrfnHealthInsrprm: string; //	국민건강보험료
-  npnInsrprm: string;       //	국민연금보험료
-  odsnLngtrmrcprInsrprm: string; //	노인장기요양보험료
-  qltyMngcst: string;      //	품질관리비
-  qltyMngcstAObjYn: string; //품질관리비A적용대상여부
-  smkpAmt: string;          // 표준시장단가금액 (원화,원)
-  smkpAmtYn: string;        // 표준시장단가금액A적용대상여부
+  bidNtceOrd?: string;      // 입찰공고차수
+  bidNtceNm?: string;       // 입찰공고명
+  bssamt?: string;          // 기초금액
+  basePrceAamt?: string;    // 기초금액 A값
+  sftyMngcst?: string;      // 산업안전보건관리비
+  sftyChckMngcst?: string;  // 안전관리비
+  rtrfundNon?: string;      // 퇴직공제부금비
+  mrfnHealthInsrprm?: string; // 국민건강보험료
+  npnInsrprm?: string;      // 국민연금보험료
+  odsnLngtrmrcprInsrprm?: string; // 노인장기요양보험료
+  qltyMngcst?: string;     // 품질관리비
+  qltyMngcstAObjYn?: string; // 품질관리비A적용대상여부
+  envCnsrvcst?: string;     // 환경보전비
+  lbrcstBssRate?: string;   // 노무비기준율
+  rmrk1?: string;           // 비고1
+  rmrk2?: string;           // 비고2
+  inptDt?: string;          // 입력일시
+  rsrvtnPrceRngBgnRate?: string; // 예비가격범위시작률
+  rsrvtnPrceRngEndRate?: string; // 예비가격범위종료율
+  etcGnrlexpnsBssRate?: string; // 기타경비기준율
+  usefulAmt?: string;       // 가용금액
+  resultCode?: string;      // 결과코드
+  bssamtOpenDt?: string;    // 기초금액공개일시
+  evlBssAmt?: string;       // 평가기준금액
+  gnrlMngcstBssRate?: string; // 일반관리비기준율
+  scontrctPayprcePayGrntyFee?: string; // 하도급대금지급보증수수료
+  dfcltydgrCfcnt?: string;  // 난이도계수
+  prftBssRate?: string;     // 이윤기준율
+  bidClsfcNo?: string;      // 입찰분류번호
+  bidPrceCalclAValYn?: string; // 입찰가격산식A여부
+  bssAmtPurcnstcst?: string; // 기초금액순공사비
+  smkpAmt?: string;         // 표준시장단가금액 (원화,원)
+  smkpAmtYn?: string;       // 표준시장단가금액A적용대상여부
 }
 
