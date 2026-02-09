@@ -9,6 +9,26 @@ import { backendApi } from '@/lib/backendApi';
 import { toast } from 'sonner';
 import { Save } from 'lucide-react';
 
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BidSearchParams } from '@/types/bid';
+import { backendApi } from '@/lib/backendApi';
+import { toast } from 'sonner';
+import { Save, Calendar as CalendarIcon } from 'lucide-react';
+import { format } from 'date-fns';
+import { DateRange } from 'react-day-picker';
+import { cn } from '@/lib/utils';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+
 interface SearchFormProps {
   onSearch: (params: BidSearchParams, page?: number) => void;
   isLoading: boolean;
@@ -17,8 +37,10 @@ interface SearchFormProps {
 
 export default function SearchForm({ onSearch, isLoading, initialValues }: SearchFormProps) {
   const [inqryDiv, setInqryDiv] = useState<'1' | '2'>('1');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [date, setDate] = useState<DateRange | undefined>({
+    from: undefined,
+    to: undefined,
+  });
   const [regionName, setRegionName] = useState('');
   const [industryName, setIndustryName] = useState('');
   const [priceStart, setPriceStart] = useState('');
@@ -29,18 +51,22 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
   useEffect(() => {
     if (initialValues) {
       setInqryDiv(initialValues.inqryDiv);
-      if (initialValues.inqryBgnDt && initialValues.inqryBgnDt.length >= 8) {
-        const y = initialValues.inqryBgnDt.substring(0, 4);
-        const m = initialValues.inqryBgnDt.substring(4, 6);
-        const d = initialValues.inqryBgnDt.substring(6, 8);
-        setStartDate(`${y}-${m}-${d}`);
+      
+      const parseDate = (dtStr: string) => {
+        if (dtStr.length < 8) return undefined;
+        const y = parseInt(dtStr.substring(0, 4), 10);
+        const m = parseInt(dtStr.substring(4, 6), 10) - 1;
+        const d = parseInt(dtStr.substring(6, 8), 10);
+        return new Date(y, m, d);
+      };
+
+      if (initialValues.inqryBgnDt && initialValues.inqryEndDt) {
+        setDate({
+          from: parseDate(initialValues.inqryBgnDt),
+          to: parseDate(initialValues.inqryEndDt),
+        });
       }
-      if (initialValues.inqryEndDt && initialValues.inqryEndDt.length >= 8) {
-        const y = initialValues.inqryEndDt.substring(0, 4);
-        const m = initialValues.inqryEndDt.substring(4, 6);
-        const d = initialValues.inqryEndDt.substring(6, 8);
-        setEndDate(`${y}-${m}-${d}`);
-      }
+      
       setRegionName(initialValues.prtcptLmtRgnNm || '');
       setIndustryName(initialValues.indstrytyNm || '');
       setPriceStart(initialValues.presmptPrceBgn || '');
@@ -57,8 +83,14 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       if (preference && preference.search_conditions) {
         const conditions = preference.search_conditions;
         if (conditions.inqryDiv) setInqryDiv(conditions.inqryDiv as '1' | '2');
-        if (conditions.startDate) setStartDate(conditions.startDate as string);
-        if (conditions.endDate) setEndDate(conditions.endDate as string);
+        
+        if (conditions.startDate && conditions.endDate) {
+            setDate({
+                from: new Date(conditions.startDate as string),
+                to: new Date(conditions.endDate as string)
+            });
+        }
+
         if (conditions.regionName) setRegionName(conditions.regionName as string);
         if (conditions.industryName) setIndustryName(conditions.industryName as string);
         if (conditions.priceStart) setPriceStart(conditions.priceStart as string);
@@ -76,8 +108,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
     try {
       await backendApi.savePreference({
         inqryDiv,
-        startDate,
-        endDate,
+        startDate: date?.from?.toISOString(),
+        endDate: date?.to?.toISOString(),
         regionName,
         industryName,
         priceStart,
@@ -93,30 +125,22 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!startDate || !endDate) {
-      toast.error('시작일과 종료일을 입력해주세요');
+    if (!date?.from || !date?.to) {
+      toast.error('조회 기간을 선택해주세요');
       return;
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (start > end) {
-      toast.error('시작일이 종료일보다 늦을 수 없습니다');
-      return;
-    }
-
-    const formatDateTime = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}${month}${day}0000`;
+    const formatDateTime = (d: Date, end: boolean = false) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}${month}${day}${end ? '2359' : '0000'}`;
     };
 
     const params: BidSearchParams = {
       inqryDiv,
-      inqryBgnDt: formatDateTime(start),
-      inqryEndDt: formatDateTime(end),
+      inqryBgnDt: formatDateTime(date.from),
+      inqryEndDt: formatDateTime(date.to, true),
       prtcptLmtRgnNm: regionName || undefined,
       indstrytyNm: industryName || undefined,
       presmptPrceBgn: priceStart || undefined,
@@ -150,26 +174,62 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="startDate">시작일</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                required
-              />
+            <div className="space-y-2 md:col-span-2">
+              <Label>조회 기간</Label>
+              <div className={cn("grid gap-2")}>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="date"
+                      variant={"outline"}
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !date && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {date?.from ? (
+                        date.to ? (
+                          <>
+                            {format(date.from, "yyyy-MM-dd")} -{" "}
+                            {format(date.to, "yyyy-MM-dd")}
+                          </>
+                        ) : (
+                          format(date.from, "yyyy-MM-dd")
+                        )
+                      ) : (
+                        <span>기간을 선택하세요</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      initialFocus
+                      mode="range"
+                      defaultMonth={date?.from}
+                      selected={date}
+                      onSelect={setDate}
+                      numberOfMonths={2}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="endDate">종료일</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                required
-              />
+              <Label htmlFor="bidClseExcpYn">입찰마감 제외 여부</Label>
+              <Select
+                value={excludeClosed}
+                onValueChange={(value: 'Y' | 'N' ) => setExcludeClosed(value)}
+              >
+                <SelectTrigger id="bidClseExcpYn">
+                  <SelectValue placeholder="제외" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Y">제외</SelectItem>
+                  <SelectItem value="N">포함</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
@@ -216,22 +276,6 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
                 value={priceEnd}
                 onChange={(e) => setPriceEnd(e.target.value)}
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="bidClseExcpYn">입찰마감 제외 여부</Label>
-              <Select
-                value={excludeClosed}
-                onValueChange={(value: 'Y' | 'N' ) => setExcludeClosed(value)}
-              >
-                <SelectTrigger id="bidClseExcpYn">
-                  <SelectValue placeholder="제외" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Y">제외</SelectItem>
-                  <SelectItem value="N">포함</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
 
