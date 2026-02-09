@@ -104,7 +104,7 @@ class NotificationScheduler:
         # Search for bid notices
         try:
             response = await narajangter_service.search_bids(search_params)
-            items = response.get('items', [])
+            items = response.items
             
             if items:
                 # Send email notification
