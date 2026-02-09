@@ -17,12 +17,12 @@ interface BidCalculatorProps {
 export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidCalculatorProps) {
   if (!bid) return null;
 
-  // const estimatedPrice = parseFloat(bid.presmptPrce || '0');
-  const budgetPrice = parseFloat(bid.bdgtAmt || '0');
+  // 기초금액(Basis Amount) 결정: 상세 API에서 받은 bssamt가 최우선, 없으면 검색 결과의 bdgtAmt 사용
+  const basisAmount = aValueItem?.bssamt ? parseFloat(aValueItem.bssamt) : parseFloat(bid.bdgtAmt || '0');
   const minSuccessRate = parseFloat(bid.sucsfbidLwltRate || '87.745');
 
   const result = calculateOptimalBidPrice(
-    budgetPrice, 
+    basisAmount, 
     bid.prearngPrceDcsnMthdNm || '미제공', 
     aValueItem, 
     minSuccessRate
@@ -40,7 +40,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     { url: bid.bidNtceDtlUrl, name: '입찰공고 페이지' },
   ].filter((doc) => doc.url);
 
-return (
+  return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -64,8 +64,8 @@ return (
                     <span className="font-medium">{bid.bidNtceNo}-{bid.bidNtceOrd}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">기초금액</span>
-                    <span className="font-medium text-blue-600">{budgetPrice.toLocaleString()}원</span>
+                    <span className="text-muted-foreground">기초금액(bssamt)</span>
+                    <span className="font-medium text-blue-600">{basisAmount.toLocaleString()}원</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">낙찰하한율</span>
@@ -120,7 +120,7 @@ return (
                 </div>
                 <div className="p-3 bg-gray-100 rounded-lg">
                   <p className="text-xs text-muted-foreground">기초금액 (100%)</p>
-                  <p className="text-md font-bold text-gray-700">{budgetPrice.toLocaleString()}원</p>
+                  <p className="text-md font-bold text-gray-700">{basisAmount.toLocaleString()}원</p>
                 </div>
               </div>
 
@@ -133,12 +133,11 @@ return (
             </CardContent>
           </Card>
 
-          {/* 3. A값 세부 내역 (추가된 부분) */}
-          {/* {result.aValueDetail && (
+          {/* 3. A값 세부 내역 */}
+          {result.aValueDetail && (
             <Card className="border-orange-100 bg-orange-50/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-md flex items-center gap-2">
-                  <Info className="h-4 w-4 text-orange-500" />
                   기초금액 A값 세부 항목
                 </CardTitle>
               </CardHeader>
@@ -148,7 +147,7 @@ return (
                 </pre>
               </CardContent>
             </Card>
-          )} */}
+          )}
 
           {/* 4. 입찰 서류 목록 */}
           {documents.length > 0 && (

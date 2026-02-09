@@ -82,11 +82,14 @@ class BackendApiService {
     };
   }
 
-  async getBidAValue(bidNtceNo: string): Promise<BidAValueItem | null> {
-    // 307 Redirect 방지를 위해 엔드포인트 끝에 / 를 붙이는 것이 안전합니다.
-    const response = await fetch(`${API_BASE_URL}/bids/a-value/${bidNtceNo}/`, {
+  async getBidAValue(bidNtceNo: string, bidType: string = 'cnstwk'): Promise<BidAValueItem | null> {
+    // bid_type을 쿼리 스트링으로 추가합니다.
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/a-value/${bidNtceNo}/`);
+    url.searchParams.append('bid_type', bidType);
+
+    const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: this.getAuthHeaders(), // 401 Unauthorized 방지
+      headers: this.getAuthHeaders(),
     });
 
     if (response.status === 404) {

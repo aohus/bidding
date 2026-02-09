@@ -90,8 +90,13 @@ export default function Index() {
     const toastId = toast.loading('공고의 A값(국민연금 등 고정비용)을 분석 중입니다...');
     
     try {
+      // 공고 유형 판별 (공사: cnstwk, 용역: servc)
+      // bidClsfcNo: 1(공사), 3(용역), 5(물품) 등
+      // 또는 주공종명(mainCnsttyNm) 존재 여부로 판별
+      const bidType = (bid.mainCnsttyNm || bid.cnstrtsiteRgnNm) ? 'cnstwk' : 'servc';
+      
       // API를 통해 해당 공고번호(bidNtceNo)의 A값 정보를 가져옴
-      const aValueItem = await backendApi.getBidAValue(bid.bidNtceNo);
+      const aValueItem = await backendApi.getBidAValue(bid.bidNtceNo, bidType);
       
       setSelectedAValue(aValueItem);
       setSelectedBid(bid);
