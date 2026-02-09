@@ -92,7 +92,13 @@ class NaraJangterService:
             # Log raw response for debugging
             logger.debug(f"Raw API Response for A-value: {response.text}")
             
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    logger.info(f"A-value API returned 404 for bidNtceNo: {bidNtceNo}. Treating as no data found.")
+                    return None
+                raise e
             
             try:
                 data = response.json()
