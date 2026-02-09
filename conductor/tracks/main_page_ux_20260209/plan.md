@@ -11,8 +11,8 @@
 ## Phase 2: 검색 필터 UI 컴포넌트 고도화
 - [x] Task: `DateRangePicker` 통합 322c5bd
     - [x] 시작일/종료일 개별 입력을 하나의 기간 선택 컴포넌트로 교체 (`shadcn/ui` 활용)
-- [ ] Task: `TagInput` UI 컴포넌트 구현
-    - [ ] 참가제한지역명 및 업종명 필드에 태그 입력 방식 적용 (콤마/엔터 구분)
+- [x] Task: `TagInput` UI 컴포넌트 구현 e3e026c
+    - [x] 참가제한지역명 및 업종명 필드에 태그 입력 방식 적용 (콤마/엔터 구분)
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: UI 컴포넌트 개선' (Protocol in workflow.md)
 
 ## Phase 3: 다중 검색 로직 및 API 연동
