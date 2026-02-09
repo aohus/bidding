@@ -1,6 +1,6 @@
 # Implementation Plan - API Update & Bid Calc Refactor
 
-## Phase 1: Backend Implementation
+## Phase 1: Backend Implementation [checkpoint: c14a2b9]
 - [x] Task: `BidAValueItem` Pydantic 모델 업데이트 5f4bc14
     - [x] 새로운 API 매핑 테이블에 맞춰 스키마 정의 (`bssamt` 필수 포함)
 - [x] Task: `narajangter.py` 서비스 로직 수정 0c950da
@@ -9,11 +9,11 @@
     - [x] API 응답 파싱 및 에러 핸들링
 - [x] Task: API 응답 테스트 확인
     - [x] 실제 나라장터 API 호출 테스트 및 데이터 검증
-- [ ] Task: Conductor - User Manual Verification 'Backend Implementation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Backend Implementation' (Protocol in workflow.md)
 
 ## Phase 2: Frontend Implementation
-- [ ] Task: 타입 정의 업데이트
-    - [ ] 백엔드 변경 사항에 맞춰 `types/bid.ts` 내 인터페이스 수정
+- [x] Task: 타입 정의 업데이트 826c247
+    - [x] 백엔드 변경 사항에 맞춰 `types/bid.ts` 내 인터페이스 수정
 - [ ] Task: 입찰가 계산 로직 수정 (`bidCalculations.ts`)
     - [ ] `budgetPrice` 의존성 제거 및 `bssamt` 기반 계산 로직 구현
 - [ ] Task: `BidCalculator.tsx` UI 업데이트
