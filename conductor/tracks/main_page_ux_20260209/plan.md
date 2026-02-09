@@ -4,8 +4,8 @@
 - [x] Task: `LocalStorage` 기반 상태 관리 구현 87b2a10
     - [x] 검색 조건 및 결과를 저장할 커스텀 훅 또는 상태 저장 로직 작성
     - [x] 페이지 로드 시 캐시된 데이터 복원 기능 구현
-- [ ] Task: 초기 진입 시 자동 검색 로직 구현
-    - [ ] 기본값(개찰일시, 오늘 날짜) 설정 및 첫 렌더링 시 API 호출 트리거
+- [x] Task: 초기 진입 시 자동 검색 로직 구현 8e281be
+    - [x] 기본값(개찰일시, 오늘 날짜) 설정 및 첫 렌더링 시 API 호출 트리거
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: 상태 관리 및 캐싱' (Protocol in workflow.md)
 
 ## Phase 2: 검색 필터 UI 컴포넌트 고도화
