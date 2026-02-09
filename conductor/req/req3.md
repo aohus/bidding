@@ -8,7 +8,7 @@
 
 #### example url:
 
-date 기준: `http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn?inqryDiv=1&inqryBgnDt=202507010000?inqryEndDt=202507020000pageNo=1&numOfRows=10&ServiceKey=인증키`
+date 기준: `http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn?inqryDiv=1&inqryBgnDt=202507010000?inqryEndDt=202507020000&pageNo=1&numOfRows=10&ServiceKey=인증키`
 공고no기준: `http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn?inqryDiv=2&bidNtceNo=R25BK00932003&bidNtceOrd=000&pageNo=1&numOfRows=10&ServiceKey=인증키`
 
 #### example response:
