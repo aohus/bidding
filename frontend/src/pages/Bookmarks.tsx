@@ -110,7 +110,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [bookmarks, setBookmarks] = useState<BookmarkWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('interested');
+  const [activeTab, setActiveTab] = useState('bid_completed');
 
   // 투찰완료 tab state
   const [bidFilter, setBidFilter] = useState<BidFilter>('all');
@@ -289,22 +289,22 @@ export default function Dashboard() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4">
-            <TabsTrigger value="interested" className="gap-2">
-              <Star className="h-4 w-4" />
-              관심공고
-            </TabsTrigger>
             <TabsTrigger value="bid_completed" className="gap-2">
               <CheckCircle className="h-4 w-4" />
               투찰완료
             </TabsTrigger>
+            <TabsTrigger value="interested" className="gap-2">
+              <Star className="h-4 w-4" />
+              관심공고
+            </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="interested">
-            {renderInterestedTable()}
-          </TabsContent>
 
           <TabsContent value="bid_completed">
             {renderBidCompletedTable()}
+          </TabsContent>
+
+          <TabsContent value="interested">
+            {renderInterestedTable()}
           </TabsContent>
         </Tabs>
       </div>

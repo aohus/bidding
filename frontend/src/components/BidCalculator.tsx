@@ -110,10 +110,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
             >
               <ExternalLink className="h-5 w-5 text-blue-600 shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-blue-800">나라장터 입찰공고 페이지 바로가기</p>
-                <p className="text-xs text-blue-600 truncate">{bid.bidNtceDtlUrl}</p>
-              </div>
+              <p className="text-sm font-semibold text-blue-800">나라장터 입찰공고 페이지 바로가기</p>
             </a>
           )}
 
@@ -176,8 +173,8 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                   <span className="font-medium">{bid.prearngPrceDcsnMthdNm || '-'}</span>
                 </div>
                 <div className="col-span-2 flex justify-between">
-                  <span className="text-muted-foreground">낙찰방법</span>
-                  <span className="font-medium text-right max-w-[70%]">{bid.sucsfbidMthdNm || '-'}</span>
+                  <span className="text-muted-foreground shrink-0">낙찰방법</span>
+                  <span className="font-medium text-right max-w-[70%] truncate" title={bid.sucsfbidMthdNm || '-'}>{bid.sucsfbidMthdNm || '-'}</span>
                 </div>
                 {bid.prtcptPsblRgnNms && (
                   <div className="col-span-2 flex justify-between">
@@ -189,60 +186,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
             </CardContent>
           </Card>
 
-          {/* 2. 투찰가 분석 결과 */}
-          <Card className="border-blue-100 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">분석된 최적 투찰 가격</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-600 text-white rounded-xl shadow-inner">
-                  <p className="text-xs opacity-80 mb-1">최적 투찰가 (통계적 추천)</p>
-                  <p className="text-2xl font-bold">{result.optimalPrice.toLocaleString()}원</p>
-                </div>
-                <div className="p-4 bg-emerald-500 text-white rounded-xl shadow-inner">
-                  <p className="text-xs opacity-80 mb-1">권장 투찰가 (안전 마진)</p>
-                  <p className="text-2xl font-bold">{result.recommendedPrice.toLocaleString()}원</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-gray-100 rounded-lg">
-                  <p className="text-xs text-muted-foreground">하한선 (사정율 100%)</p>
-                  <p className="text-md font-bold text-gray-700">{result.minPrice.toLocaleString()}원</p>
-                </div>
-                <div className="p-3 bg-gray-100 rounded-lg">
-                  <p className="text-xs text-muted-foreground">기초금액 (100%)</p>
-                  <p className="text-md font-bold text-gray-700">{basisAmount.toLocaleString()}원</p>
-                </div>
-              </div>
-
-              <div className="p-4 border rounded-lg bg-white">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">계산 산식 및 전략</p>
-                <pre className="text-xs text-gray-600 leading-relaxed font-sans whitespace-pre-wrap">
-                  {result.calculation}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 3. A값 세부 내역 */}
-          {result.aValueDetail && (
-            <Card className="border-orange-100 bg-orange-50/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-md flex items-center gap-2">
-                  기초금액 A값 세부 항목
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs text-orange-800 leading-relaxed font-mono whitespace-pre-wrap">
-                  {result.aValueDetail}
-                </pre>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* 4. 입찰 서류 목록 */}
+          {/* 2. 입찰 서류 목록 */}
           {documents.length > 0 && (
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-gray-500 px-1">입찰 관련 서류</h3>
@@ -262,6 +206,52 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               </div>
             </div>
           )}
+
+          {/* 3. 투찰가 분석 결과 */}
+          <Card className="border-blue-100 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">분석된 최적 투찰 가격</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* 산출 기초 정보 */}
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">기초금액</p>
+                  <p className="font-bold text-gray-800">{result.basisAmount.toLocaleString()}원</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">낙찰하한율</p>
+                  <p className="font-bold text-gray-800">{result.minSuccessRate}%</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">A값</p>
+                  <p className="font-bold text-gray-800">{result.aValue.toLocaleString()}원</p>
+                </div>
+              </div>
+
+              {/* 추천 투찰가 3개 */}
+              <div className="grid grid-cols-3 gap-3">
+                {result.recommendations.map((rec) => {
+                  const colorMap: Record<string, { bg: string; text: string }> = {
+                    '공격': { bg: 'bg-red-500', text: 'text-red-100' },
+                    '표준': { bg: 'bg-blue-600', text: 'text-blue-100' },
+                    '안정': { bg: 'bg-emerald-500', text: 'text-emerald-100' },
+                  };
+                  const color = colorMap[rec.label] || colorMap['표준'];
+                  return (
+                    <div key={rec.label} className={`p-4 ${color.bg} text-white rounded-xl shadow-inner`}>
+                      <p className={`text-xs ${color.text} mb-1`}>{rec.label}</p>
+                      <p className="text-lg font-bold">{rec.price.toLocaleString()}원</p>
+                      <div className="flex justify-between mt-2 text-xs opacity-80">
+                        <span>사정율 {rec.adjRate}%</span>
+                        <span>투찰률 {rec.bidRate}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* 액션 버튼 */}
           <div className="space-y-2 pt-4">

@@ -384,14 +384,23 @@ async def get_bookmarks(
             cached = results_map[b.bid_notice_no]
             resp.total_bidders = cached["total"]
 
-            if normalized_biz and cached["data"]:
+            if cached["data"]:
+                # 낙찰자(1등) 정보
                 for item in cached["data"]:
-                    biz = (item.get("prcbdrBizno") or "").replace("-", "")
-                    if biz == normalized_biz:
-                        resp.actual_bid_price = item.get("bidprcAmt")
-                        resp.bid_rate = item.get("bidprcrt")
-                        resp.rank = item.get("opengRank")
+                    if item.get("opengRank") == "1":
+                        resp.winning_bid_price = item.get("bidprcAmt")
+                        resp.winning_bid_rate = item.get("bidprcrt")
                         break
+
+                # 내 투찰 정보
+                if normalized_biz:
+                    for item in cached["data"]:
+                        biz = (item.get("prcbdrBizno") or "").replace("-", "")
+                        if biz == normalized_biz:
+                            resp.actual_bid_price = item.get("bidprcAmt")
+                            resp.bid_rate = item.get("bidprcrt")
+                            resp.rank = item.get("opengRank")
+                            break
 
         if resp.actual_bid_price is None and b.bid_price:
             resp.actual_bid_price = str(b.bid_price)

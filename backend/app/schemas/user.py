@@ -100,6 +100,9 @@ class BookmarkResponse(BaseModel):
     bid_rate: Optional[str] = None
     rank: Optional[str] = None
     total_bidders: Optional[int] = None
+    # 낙찰자(1등) 정보
+    winning_bid_price: Optional[str] = None
+    winning_bid_rate: Optional[str] = None
 
     class Config:
         from_attributes = True

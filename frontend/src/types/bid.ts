@@ -96,12 +96,18 @@ export interface BidItem {
 }
 
 
+export interface BidRecommendation {
+  label: string;
+  price: number;
+  adjRate: number;   // 사정율 (%)
+  bidRate: number;    // 투찰률 (%)
+}
+
 export interface BidCalculationResult {
-  optimalPrice: number;
-  minPrice: number;
-  recommendedPrice: number;
-  calculation: string;
-  aValueDetail: string;
+  basisAmount: number;
+  minSuccessRate: number;
+  aValue: number;
+  recommendations: BidRecommendation[];
 }
 
 export interface BidAValueItem {
@@ -174,6 +180,8 @@ export interface BookmarkWithStatus {
   bid_rate?: string;
   rank?: string;
   total_bidders?: number;
+  winning_bid_price?: string;
+  winning_bid_rate?: string;
 }
 
 export interface BidResultItem {
