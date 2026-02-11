@@ -6,6 +6,11 @@ from app.api import auth, preferences, bids, notifications, locations, profile
 from app.services.scheduler import notification_scheduler
 from app.services.bid_sync_scheduler import bid_sync_scheduler
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+is_production = settings.ENV == "production"
 
 
 @asynccontextmanager
@@ -16,28 +21,31 @@ async def lifespan(app: FastAPI):
     # Startup: Start the notification scheduler
     if settings.ENABLE_EMAIL_NOTIFICATIONS:
         asyncio.create_task(notification_scheduler.start())
-        print("Email notification scheduler started")
+        logger.info("Email notification scheduler started")
 
     # Startup: Start bid data sync scheduler
     asyncio.create_task(bid_sync_scheduler.start())
-    print("Bid data sync scheduler started")
+    logger.info("Bid data sync scheduler started")
 
     yield
 
     # Shutdown
     if settings.ENABLE_EMAIL_NOTIFICATIONS:
         await notification_scheduler.stop()
-        print("Email notification scheduler stopped")
+        logger.info("Email notification scheduler stopped")
 
     await bid_sync_scheduler.stop()
-    print("Bid data sync scheduler stopped")
+    logger.info("Bid data sync scheduler stopped")
 
 
 app = FastAPI(
     title="Bidding Notification System API",
     description="Backend API for construction bidding information system",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
 
 # Configure CORS

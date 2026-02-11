@@ -11,6 +11,7 @@ logs/
 .env
 .env.local
 .env.production
+.env.prod
 .env.development
 env/
 venv/

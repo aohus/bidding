@@ -1,5 +1,5 @@
 # Multi-stage build for React + Vite frontend
-FROM node:18-alpine as builder
+FROM node:18.19-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -20,7 +20,7 @@ COPY . .
 RUN pnpm run build
 
 # Production stage with Nginx
-FROM nginx:alpine
+FROM nginx:1.25-alpine
 
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
