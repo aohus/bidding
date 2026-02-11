@@ -10,6 +10,7 @@ from app.services.narajangter import narajangter_service
 logger = logging.getLogger(__name__)
 
 KST = timezone(timedelta(hours=9))
+ALERT_THROTTLE_SECONDS = 3600  # 알림 최소 간격: 1시간
 
 
 class BidDataSyncScheduler:
@@ -31,6 +32,10 @@ class BidDataSyncScheduler:
        - 페이지 간 0.5초, 윈도우 간 1초 대기
        - 실행당 최대 API 호출 수 제한
        - asyncio.Lock으로 동시 실행 방지
+
+    4. 실패 알림:
+       - 사이클 내 실패 윈도우를 모아 이메일 발송
+       - 1시간에 최대 1회 (throttle)
     """
 
     SYNC_INTERVAL = 3600  # 1시간
@@ -42,6 +47,8 @@ class BidDataSyncScheduler:
     def __init__(self):
         self.is_running = False
         self._sync_lock = asyncio.Lock()
+        self._last_alert_at: datetime | None = None
+        self._failed_windows: list[str] = []
 
     async def start(self):
         if self.is_running:
@@ -70,9 +77,13 @@ class BidDataSyncScheduler:
     async def _run_sync_cycle(self):
         """한 번의 동기화 사이클."""
         async with self._sync_lock:
+            self._failed_windows = []
             api_calls = 0
             api_calls = await self._sync_recent_hours(api_calls)
             await self._backfill_past_days(api_calls)
+
+            if self._failed_windows:
+                await self._send_failure_alert()
 
     async def _sync_recent_hours(self, api_calls: int) -> int:
         """최근 N시간을 시간별 윈도우로 동기화합니다."""
@@ -200,6 +211,9 @@ class BidDataSyncScheduler:
                 logger.warning(
                     f"All API calls failed for {window_start}~{window_end}, "
                     f"skipping mark"
+                )
+                self._failed_windows.append(
+                    f"{window_start}~{window_end}"
                 )
                 return api_calls
 
@@ -333,6 +347,7 @@ class BidDataSyncScheduler:
     async def sync_recent_data(self, days: int = 30):
         """수동 트리거용: 과거 N일 동기화."""
         async with self._sync_lock:
+            self._failed_windows = []
             now = datetime.now(KST)
             api_calls = 0
 
@@ -355,6 +370,66 @@ class BidDataSyncScheduler:
                 calls = await self._sync_window_internal(ts, end)
                 api_calls += calls
                 await asyncio.sleep(1)
+
+            if self._failed_windows:
+                await self._send_failure_alert()
+
+    async def _send_failure_alert(self):
+        """동기화 실패 시 이메일 알림 (1시간에 최대 1회)."""
+        now = datetime.now(KST)
+
+        if self._last_alert_at:
+            elapsed = (now - self._last_alert_at).total_seconds()
+            if elapsed < ALERT_THROTTLE_SECONDS:
+                logger.info(
+                    f"Alert throttled ({int(elapsed)}s since last alert), "
+                    f"{len(self._failed_windows)} failed windows not reported"
+                )
+                return
+
+        from app.core.config import settings
+        from app.services.email_service import email_service
+
+        to_email = settings.ALERT_EMAIL or settings.FROM_EMAIL
+        if not to_email:
+            logger.warning("No alert email configured, skipping failure alert")
+            return
+
+        failed_list = "\n".join(f"  - {w}" for w in self._failed_windows)
+        time_str = now.strftime("%Y-%m-%d %H:%M KST")
+
+        subject = f"[입찰시스템] 동기화 실패 알림 ({len(self._failed_windows)}건)"
+        html_content = f"""
+<h3>입찰 데이터 동기화 실패</h3>
+<p><b>시각:</b> {time_str}</p>
+<p><b>실패 윈도우 ({len(self._failed_windows)}건):</b></p>
+<pre>{failed_list}</pre>
+<p>다음 동기화 사이클에서 자동으로 재시도됩니다.</p>
+<hr>
+<p style="color: #888; font-size: 12px;">입찰 정보 시스템 자동 알림</p>
+"""
+        text_content = (
+            f"입찰 데이터 동기화 실패\n"
+            f"시각: {time_str}\n"
+            f"실패 윈도우 ({len(self._failed_windows)}건):\n"
+            f"{failed_list}\n\n"
+            f"다음 동기화 사이클에서 자동으로 재시도됩니다."
+        )
+
+        try:
+            sent = await email_service.send_email(
+                to_email=to_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=text_content,
+            )
+            if sent:
+                self._last_alert_at = now
+                logger.info(f"Sync failure alert sent to {to_email}")
+            else:
+                logger.warning(f"Failed to send sync failure alert to {to_email}")
+        except Exception as e:
+            logger.error(f"Error sending sync failure alert: {e}")
 
 
 bid_sync_scheduler = BidDataSyncScheduler()

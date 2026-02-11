@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     ENABLE_EMAIL_NOTIFICATIONS: bool = True
     NOTIFICATION_CHECK_INTERVAL: int = 3600  # seconds (1 hour)
     ENABLE_BID_SYNC: bool = True
+    ALERT_EMAIL: str = ""  # 동기화 실패 알림 수신 이메일 (미설정 시 FROM_EMAIL 사용)
     
     @property
     def cors_origins(self) -> List[str]:
