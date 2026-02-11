@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { AuthService } from '@/lib/auth';
-import { LogOut, User, LayoutDashboard, Search, Settings, Clock } from 'lucide-react';
+import { LogOut, User, LayoutDashboard, Search, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSessionTimer } from '@/hooks/useSessionTimer';
@@ -49,6 +49,7 @@ export default function Header({ onLogout }: HeaderProps) {
             <Button
               variant="outline"
               size="sm"
+              className="border-blue-200 text-blue-700 hover:bg-blue-50"
               onClick={() => navigate('/')}
             >
               <Search className="mr-2 h-4 w-4" />
@@ -58,6 +59,7 @@ export default function Header({ onLogout }: HeaderProps) {
             <Button
               variant="outline"
               size="sm"
+              className="border-blue-200 text-blue-700 hover:bg-blue-50"
               onClick={() => navigate('/dashboard')}
             >
               <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -69,13 +71,9 @@ export default function Header({ onLogout }: HeaderProps) {
             size="sm"
             onClick={() => navigate('/settings')}
           >
-            <Settings className="mr-2 h-4 w-4" />
-            정보수정
+            <User className="mr-1.5 h-4 w-4" />
+            {username || '정보수정'}
           </Button>
-          <div className="flex items-center gap-2 text-sm text-gray-700">
-            <User className="h-4 w-4" />
-            <span>{username}</span>
-          </div>
           <div
             className={`flex items-center gap-1 text-sm font-mono px-2 py-1 rounded ${
               isUrgent

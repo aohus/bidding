@@ -392,14 +392,42 @@ async def get_bookmarks(
                         resp.winning_bid_rate = item.get("bidprcrt")
                         break
 
-                # 내 투찰 정보
+                # 내 투찰 정보 + 마이너스 등수 계산
                 if normalized_biz:
+                    # opengRank 없는 업체 = 미달
+                    # 투찰률 내림차순으로 -1, -2, ... 부여
+                    unranked = []
+                    for r in cached["data"]:
+                        rank_val = (r.get("opengRank") or "").strip()
+                        if not rank_val:
+                            try:
+                                rate = float(r.get("bidprcrt") or "0")
+                            except (ValueError, TypeError):
+                                rate = 0.0
+                            biz_r = (r.get("prcbdrBizno") or "").replace(
+                                "-", ""
+                            )
+                            unranked.append((rate, biz_r))
+                    # 투찰률 높은 순 (threshold에 가까운 순) = -1
+                    unranked.sort(key=lambda x: x[0], reverse=True)
+
                     for item in cached["data"]:
                         biz = (item.get("prcbdrBizno") or "").replace("-", "")
                         if biz == normalized_biz:
                             resp.actual_bid_price = item.get("bidprcAmt")
                             resp.bid_rate = item.get("bidprcrt")
-                            resp.rank = item.get("opengRank")
+
+                            rank_val = (
+                                item.get("opengRank") or ""
+                            ).strip()
+                            if rank_val:
+                                resp.rank = rank_val
+                            else:
+                                # 미달 업체 중 순서 찾기
+                                for idx, (_, ubiz) in enumerate(unranked):
+                                    if ubiz == normalized_biz:
+                                        resp.rank = str(-(idx + 1))
+                                        break
                             break
 
         if resp.actual_bid_price is None and b.bid_price:

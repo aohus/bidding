@@ -419,10 +419,10 @@ export default function Dashboard() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[130px] whitespace-nowrap">공고번호</TableHead>
-              <TableHead>공고명</TableHead>
-              <TableHead className="w-[90px] whitespace-nowrap">마감</TableHead>
-              <TableHead className="w-[90px] whitespace-nowrap">개찰</TableHead>
+              <TableHead className="w-[110px] whitespace-nowrap">공고번호</TableHead>
+              <TableHead className="max-w-[280px]">공고명</TableHead>
+              <TableHead className="w-[80px] whitespace-nowrap">마감</TableHead>
+              <TableHead className="w-[80px] whitespace-nowrap">개찰</TableHead>
               <TableHead className="w-[60px] text-center whitespace-nowrap">상태</TableHead>
               <TableHead className="w-[180px]">메모</TableHead>
               <TableHead className="w-[120px] text-center whitespace-nowrap">작업</TableHead>
@@ -435,12 +435,13 @@ export default function Dashboard() {
               return (
                 <TableRow key={b.bookmark_id}>
                   <TableCell className="font-mono text-xs">{b.bid_notice_no}</TableCell>
-                  <TableCell>
+                  <TableCell className="max-w-[280px]">
                     <a
                       href={g2bUrl(b.bid_notice_no, b.bid_notice_ord)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                      title={b.bid_notice_name}
                     >
                       {b.bid_notice_name}
                     </a>
@@ -448,7 +449,7 @@ export default function Dashboard() {
                   <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.bid_close_dt)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.openg_dt)}</TableCell>
                   <TableCell className="text-center">
-                    <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded ${cfg.bg} ${cfg.text}`}>
+                    <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded whitespace-nowrap ${cfg.bg} ${cfg.text}`}>
                       {cfg.label}
                     </span>
                   </TableCell>
@@ -511,41 +512,42 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[130px] whitespace-nowrap">공고번호</TableHead>
-                <TableHead>공고명</TableHead>
+                <TableHead className="w-[110px] whitespace-nowrap">공고번호</TableHead>
+                <TableHead className="max-w-[200px] whitespace-nowrap">공고명</TableHead>
                 <TableHead
-                  className="w-[90px] whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
+                  className="w-[80px] whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
                   onClick={() => handleSort('bid_close_dt')}
                 >
                   마감<SortIcon field="bid_close_dt" />
                 </TableHead>
                 <TableHead
-                  className="w-[90px] whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
+                  className="w-[80px] whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
                   onClick={() => handleSort('openg_dt')}
                 >
                   개찰<SortIcon field="openg_dt" />
                 </TableHead>
-                <TableHead className="w-[70px] text-center whitespace-nowrap">상태</TableHead>
-                <TableHead className="w-[100px] text-right whitespace-nowrap">투찰금액</TableHead>
-                <TableHead className="w-[70px] text-right whitespace-nowrap">투찰률</TableHead>
+                <TableHead className="w-[60px] text-center whitespace-nowrap">상태</TableHead>
+                <TableHead className="w-[130px] text-right whitespace-nowrap">투찰금액</TableHead>
+                <TableHead className="w-[60px] text-right whitespace-nowrap">투찰률</TableHead>
                 <TableHead
-                  className="w-[50px] text-center whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
+                  className="w-[75px] text-center whitespace-nowrap cursor-pointer select-none hover:bg-muted/50"
                   onClick={() => handleSort('rank')}
                 >
-                  순위<SortIcon field="rank" />
+                  순위/참여<SortIcon field="rank" />
                 </TableHead>
-                <TableHead className="w-[60px] text-center whitespace-nowrap">참여자</TableHead>
-                <TableHead className="w-[120px] text-center whitespace-nowrap">작업</TableHead>
+                <TableHead className="w-[80px] text-right whitespace-nowrap">낙찰금액</TableHead>
+                <TableHead className="w-[60px] text-right whitespace-nowrap">낙찰률</TableHead>
+                <TableHead className="w-[90px] text-center whitespace-nowrap">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredAndSorted.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={11} className="text-center py-8 text-gray-500">
                     해당하는 공고가 없습니다
                   </TableCell>
                 </TableRow>
@@ -554,22 +556,26 @@ export default function Dashboard() {
                   const status = statusMap.get(b.bookmark_id) || 'upcoming';
                   const cfg = STATUS_CFG[status];
                   const isHighlight = status === 'today';
+                  const rankNum = b.rank ? parseInt(b.rank) : null;
+                  const isNegativeRank = rankNum !== null && rankNum < 0;
+
+                  // 투찰금액 - 낙찰금액 차이 계산
+                  const myAmt = b.actual_bid_price ? parseFloat(b.actual_bid_price) : null;
+                  const winAmt = b.winning_bid_price ? parseFloat(b.winning_bid_price) : null;
+                  const diff = myAmt !== null && winAmt !== null ? myAmt - winAmt : null;
+
                   return (
                     <TableRow key={b.bookmark_id} className={isHighlight ? 'bg-orange-50/50' : ''}>
                       <TableCell className="font-mono text-xs">{b.bid_notice_no}</TableCell>
-                      <TableCell>
+                      <TableCell className="max-w-[200px]">
                         <button
                           type="button"
-                          className="text-left font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          className="text-left font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer truncate block max-w-full"
                           onClick={() => handleViewResults(b)}
+                          title={b.bid_notice_name}
                         >
                           {b.bid_notice_name}
                         </button>
-                        {b.notes && (
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1" title={b.notes}>
-                            {b.notes}
-                          </p>
-                        )}
                       </TableCell>
                       <TableCell className="text-xs whitespace-nowrap text-gray-600">
                         {formatDt(b.bid_close_dt)}
@@ -578,15 +584,25 @@ export default function Dashboard() {
                         {formatDt(b.openg_dt)}
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded ${cfg.bg} ${cfg.text}`}>
+                        <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded whitespace-nowrap ${cfg.bg} ${cfg.text}`}>
                           {cfg.label}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm whitespace-nowrap">
-                        {b.actual_bid_price ? (
-                          <span title={parseFloat(b.actual_bid_price).toLocaleString() + '원'}>
-                            {formatAmt(b.actual_bid_price)}
-                          </span>
+                      <TableCell className="text-right font-mono text-xs whitespace-nowrap">
+                        {myAmt !== null ? (
+                          <div>
+                            <span title={myAmt.toLocaleString() + '원'}>
+                              {formatAmt(b.actual_bid_price)}
+                            </span>
+                            {diff !== null && diff !== 0 && (
+                              <span
+                                className={`ml-1 text-[10px] ${diff > 0 ? 'text-red-500' : 'text-blue-500'}`}
+                                title={`낙찰금액 대비 ${diff > 0 ? '+' : ''}${diff.toLocaleString()}원`}
+                              >
+                                ({diff > 0 ? '+' : '-'}{formatAmt(String(Math.abs(diff)))})
+                              </span>
+                            )}
+                          </div>
                         ) : b.bid_price ? (
                           <span className="text-gray-500" title={b.bid_price.toLocaleString() + '원 (직접입력)'}>
                             {formatAmt(String(b.bid_price))}
@@ -595,25 +611,42 @@ export default function Dashboard() {
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right text-sm">
+                      <TableCell className="text-right text-xs whitespace-nowrap">
                         {b.bid_rate ? `${b.bid_rate}%` : '-'}
                       </TableCell>
-                      <TableCell className="text-center text-sm font-semibold">
-                        {b.rank ? `${b.rank}위` : '-'}
+                      <TableCell className="text-center text-xs font-semibold whitespace-nowrap">
+                        {rankNum !== null && b.total_bidders ? (
+                          <span className={isNegativeRank ? 'text-red-500' : ''}>
+                            {rankNum}/{b.total_bidders}등
+                          </span>
+                        ) : rankNum !== null ? (
+                          <span className={isNegativeRank ? 'text-red-500' : ''}>
+                            {rankNum}등
+                          </span>
+                        ) : '-'}
                       </TableCell>
-                      <TableCell className="text-center text-sm">
-                        {b.total_bidders ? `${b.total_bidders}명` : '-'}
+                      <TableCell className="text-right font-mono text-xs whitespace-nowrap">
+                        {b.winning_bid_price ? (
+                          <span title={parseFloat(b.winning_bid_price).toLocaleString() + '원'}>
+                            {formatAmt(b.winning_bid_price)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-xs whitespace-nowrap">
+                        {b.winning_bid_rate ? `${b.winning_bid_rate}%` : '-'}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center justify-center gap-1">
-                          <Button variant="ghost" size="sm" title="결과보기" onClick={() => handleViewResults(b)}>
-                            <Trophy className="h-4 w-4 text-yellow-600" />
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="결과보기" onClick={() => handleViewResults(b)}>
+                            <Trophy className="h-3.5 w-3.5 text-yellow-600" />
                           </Button>
-                          <Button variant="ghost" size="sm" title="메모 수정" onClick={() => handleEditClick(b)}>
-                            <Pencil className="h-4 w-4" />
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="메모 수정" onClick={() => handleEditClick(b)}>
+                            <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="sm" title="삭제" onClick={() => handleDeleteClick(b)}>
-                            <Trash2 className="h-4 w-4 text-red-600" />
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="삭제" onClick={() => handleDeleteClick(b)}>
+                            <Trash2 className="h-3.5 w-3.5 text-red-600" />
                           </Button>
                         </div>
                       </TableCell>
