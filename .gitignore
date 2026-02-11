@@ -47,7 +47,6 @@ test-results/
 *.lcov
 *.user
 *.code-workspace
-pnpm-lock.yaml
 *.pyc
 __pycache__
 

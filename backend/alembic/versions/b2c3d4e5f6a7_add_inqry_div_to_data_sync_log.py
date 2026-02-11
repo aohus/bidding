@@ -17,10 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # inqry_div 컬럼이 존재하면 제거 → PK를 sync_date 단독으로 복원
-    op.drop_constraint('data_sync_log_pkey', 'data_sync_log', type_='primary')
-    op.drop_column('data_sync_log', 'inqry_div')
-    op.create_primary_key('data_sync_log_pkey', 'data_sync_log', ['sync_date'])
+    # inqry_div 컬럼이 존재하는 경우에만 제거 (fresh DB에는 없음)
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'data_sync_log' AND column_name = 'inqry_div'"
+        )
+    )
+    if result.fetchone():
+        op.drop_constraint('data_sync_log_pkey', 'data_sync_log', type_='primary')
+        op.drop_column('data_sync_log', 'inqry_div')
+        op.create_primary_key('data_sync_log_pkey', 'data_sync_log', ['sync_date'])
 
 
 def downgrade() -> None:
