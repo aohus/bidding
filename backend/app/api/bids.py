@@ -126,9 +126,9 @@ async def _sync_date_range(
     end_date: str,
     initial_result: BidApiResponse | None = None,
 ):
-    """날짜 범위를 날짜별로 전체 동기화 (백그라운드).
+    """날짜 범위를 일별 윈도우로 동기화 (백그라운드).
 
-    scheduler의 sync_date를 활용하여 공사+용역+지역+면허제한 모두 동기화.
+    scheduler의 sync_window를 활용하여 공사+용역+지역+면허제한 모두 동기화.
     """
     from app.services.bid_sync_scheduler import bid_sync_scheduler
 
@@ -142,7 +142,8 @@ async def _sync_date_range(
         current = start_dt
 
         while current <= end_dt:
-            await bid_sync_scheduler.sync_date(current.strftime("%Y%m%d"))
+            d = current.strftime("%Y%m%d")
+            await bid_sync_scheduler.sync_window(d + "0000", d + "2359")
             current += timedelta(days=1)
             await asyncio.sleep(1)
 

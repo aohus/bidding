@@ -413,47 +413,68 @@ class BidDataService:
     async def has_synced_data(
         self, db: AsyncSession, start_date: str, end_date: str
     ) -> bool:
-        """해당 날짜 범위의 데이터가 동기화되었는지 확인합니다."""
+        """날짜 범위가 동기화되었는지 확인합니다.
+
+        각 날짜에 대해 일별 윈도우(YYYYMMDD0000~YYYYMMDD2359)가 존재해야
+        해당 날짜가 완전히 동기화된 것으로 판단합니다.
+        시간별 윈도우만 있는 경우는 부분 동기화로 간주합니다.
+        """
         start_d = start_date[:8]
         end_d = end_date[:8]
-        result = await db.execute(
-            select(func.count(DataSyncLog.sync_date)).where(
-                DataSyncLog.sync_date >= start_d,
-                DataSyncLog.sync_date <= end_d,
-            )
-        )
-        synced_count = result.scalar() or 0
 
         try:
             start_dt = datetime.strptime(start_d, "%Y%m%d")
             end_dt = datetime.strptime(end_d, "%Y%m%d")
-            expected_days = (end_dt - start_dt).days + 1
         except ValueError:
             return False
 
-        return synced_count >= expected_days
+        expected_days = (end_dt - start_dt).days + 1
 
-    async def mark_date_synced(
+        result = await db.execute(
+            select(func.count()).select_from(DataSyncLog).where(
+                DataSyncLog.sync_timestamp >= start_d + "0000",
+                DataSyncLog.sync_timestamp <= end_d + "0000",
+                DataSyncLog.window_end.like("%2359"),
+            )
+        )
+        synced_days = result.scalar() or 0
+        return synced_days >= expected_days
+
+    async def get_sync_entry(
+        self, db: AsyncSession, sync_timestamp: str
+    ) -> DataSyncLog | None:
+        """특정 윈도우의 sync 엔트리를 조회합니다."""
+        result = await db.execute(
+            select(DataSyncLog).where(
+                DataSyncLog.sync_timestamp == sync_timestamp
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def mark_window_synced(
         self,
         db: AsyncSession,
-        date_str: str,
+        sync_timestamp: str,
+        window_end: str,
         total_notices: int,
         total_regions: int,
         total_license_limits: int = 0,
     ) -> None:
-        """날짜를 동기화 완료로 마킹합니다."""
+        """시간 윈도우를 동기화 완료로 마킹합니다."""
         stmt = (
             insert(DataSyncLog)
             .values(
-                sync_date=date_str,
+                sync_timestamp=sync_timestamp,
+                window_end=window_end,
                 total_notices=total_notices,
                 total_regions=total_regions,
                 total_license_limits=total_license_limits,
             )
             .on_conflict_do_update(
-                index_elements=["sync_date"],
+                index_elements=["sync_timestamp"],
                 set_={
                     "synced_at": func.now(),
+                    "window_end": window_end,
                     "total_notices": total_notices,
                     "total_regions": total_regions,
                     "total_license_limits": total_license_limits,

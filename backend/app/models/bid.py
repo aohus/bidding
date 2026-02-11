@@ -90,11 +90,18 @@ class BidLicenseLimit(Base):
 
 
 class DataSyncLog(Base):
-    """데이터 동기화 로그 - 공고게시일시(div=1) 기준 날짜별 동기화 완료 여부 추적"""
+    """데이터 동기화 로그 - 시간 윈도우 기반 동기화 추적
+
+    sync_timestamp: 윈도우 시작 (YYYYMMDDHH00)
+    window_end: 윈도우 끝 (YYYYMMDDHH59 또는 YYYYMMDD2359)
+    - 시간별: 202602111300 ~ 202602111359
+    - 일별 백필: 202602100000 ~ 202602102359
+    """
     __tablename__ = "data_sync_log"
 
-    sync_date = Column(String(8), primary_key=True)  # YYYYMMDD
-    synced_at = Column(DateTime(timezone=True), server_default=func.now())
+    sync_timestamp = Column(String(12), primary_key=True)
+    window_end = Column(String(12), nullable=False)
     total_notices = Column(Integer, default=0)
     total_regions = Column(Integer, default=0)
     total_license_limits = Column(Integer, default=0)
+    synced_at = Column(DateTime(timezone=True), server_default=func.now())
