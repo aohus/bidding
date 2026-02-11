@@ -8,10 +8,15 @@ class BidSearchParams(BaseModel):
     inqryBgnDt: str  # YYYYMMDDHHMM
     inqryEndDt: str  # YYYYMMDDHHMM
     prtcptLmtRgnNm: Optional[str] = None # 입찰참가제한지역명
+    cnstrtsiteRgnNm: Optional[str] = None # 공사현장지역명
     indstrytyNm: Optional[str] = None # 업종명
+    indstrytyCd: Optional[str] = None # 업종코드
     presmptPrceBgn: Optional[str] = None # 추정가격범위시작
     presmptPrceEnd: Optional[str] = None  # 추정가격범위끝
     bidClseExcpYn: Optional[str] = None  # Y or N
+    useLocationFilter: Optional[bool] = None  # 소재지 기준 참가가능지역 필터링
+    orderBy: Optional[str] = None  # 정렬 컬럼 (rgstDt, bidClseDt, presmptPrce, bdgtAmt)
+    orderDir: Optional[str] = None  # asc or desc
     numOfRows: int = 100
     pageNo: int = 1
 
@@ -64,6 +69,9 @@ class BidItem(BaseModel):
     indstrytyMfrcFldEvlYn: Optional[str] = None # 업종 주력분야 평가 대상 여부
     rgnLmtBidLocplcJdgmBssCd: Optional[str] = None # 지역제한입찰소재지판단기준코드
     rgnLmtBidLocplcJdgmBssNm: Optional[str] = None # 지역제한입찰소재지판단기준명
+    prtcptPsblRgnNms: Optional[str] = None # 참가가능지역명 (검색결과용, 쉼표구분)
+    permsnIndstrytyListNms: Optional[str] = None # 허용업종목록 (검색결과용, 쉼표구분)
+    indstrytyMfrcFldListNms: Optional[str] = None # 주력분야목록 (검색결과용, 쉼표구분)
 
 
 class BidApiResponse(BaseModel):
@@ -108,3 +116,62 @@ class BidAValueItem(BaseModel):
     bssAmtPurcnstcst: Optional[str] = None # 기초금액순공사비
     smkpAmt: Optional[str] = None          # 표준시장단가금액 (원화,원)
     smkpAmtYn: Optional[str] = None        # 표준시장단가금액A적용대상여부
+
+
+class PrtcptPsblRgnItem(BaseModel):
+    bidNtceNo: str
+    bidNtceOrd: Optional[str] = None
+    lmtSno: Optional[int] = None
+    prtcptPsblRgnNm: Optional[str] = None
+    rgstDt: Optional[str] = None
+    bsnsDivNm: Optional[str] = None
+
+
+class LicenseLimitItem(BaseModel):
+    bidNtceNo: str
+    bidNtceOrd: Optional[str] = None
+    lmtGrpNo: Optional[str] = None
+    lmtSno: Optional[str] = None
+    lcnsLmtNm: Optional[str] = None
+    permsnIndstrytyList: Optional[str] = None
+    bsnsDivNm: Optional[str] = None
+    rgstDt: Optional[str] = None
+    indstrytyMfrcFldList: Optional[str] = None
+
+
+class UserLocationCreate(BaseModel):
+    location_name: str
+
+
+class UserLocationResponse(BaseModel):
+    location_id: str
+    user_id: str
+    location_name: str
+
+
+class DataSyncResponse(BaseModel):
+    synced: bool
+    total_notices: int
+    total_regions: int
+    message: str
+
+
+class BidResultItem(BaseModel):
+    opengRank: Optional[str] = None
+    prcbdrBizno: Optional[str] = None
+    prcbdrNm: Optional[str] = None
+    prcbdrCeoNm: Optional[str] = None
+    bidprcAmt: Optional[str] = None
+    bidprcrt: Optional[str] = None
+    rmrk: Optional[str] = None
+    bidprcDt: Optional[str] = None
+    bidNtceNo: Optional[str] = None
+    bidNtceOrd: Optional[str] = None
+    opengRsltDivNm: Optional[str] = None
+
+
+class BidResultResponse(BaseModel):
+    bid_ntce_no: str
+    results: List[BidResultItem]
+    user_rank: Optional[BidResultItem] = None
+    total_bidders: int

@@ -1,36 +1,48 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BidItem } from '@/types/bid';
-import { Calculator, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, Heart, CheckCircle2 } from 'lucide-react';
+
+export interface BookmarkInfo {
+  status: string;
+  bookmarkId: string;
+}
 
 interface BidTableProps {
   bids: BidItem[];
-  onCalculate: (bid: BidItem) => void;
+  onBidClick: (bid: BidItem) => void;
   currentPage: number;
   totalPages: number;
   totalCount: number;
   onPageChange: (page: number) => void;
+  isLoading?: boolean;
+  numOfRows: number;
+  onNumOfRowsChange: (rows: number) => void;
+  orderBy?: string;
+  orderDir?: 'asc' | 'desc';
+  onSort: (field: string) => void;
+  bookmarkMap?: Map<string, BookmarkInfo>;
+  onBookmarkToggle?: (bid: BidItem, status: 'interested' | 'bid_completed') => void;
 }
 
-export default function BidTable({ 
-  bids, 
-  onCalculate, 
-  currentPage, 
-  totalPages, 
+export default function BidTable({
+  bids,
+  onBidClick,
+  currentPage,
+  totalPages,
   totalCount,
-  onPageChange 
+  onPageChange,
+  isLoading,
+  numOfRows,
+  onNumOfRowsChange,
+  orderBy,
+  orderDir,
+  onSort,
+  bookmarkMap,
+  onBookmarkToggle,
 }: BidTableProps) {
-  const formatDate = (dateStr: string) => {
-    if (!dateStr || dateStr.length < 12) return dateStr;
-    const year = dateStr.substring(0, 4);
-    const month = dateStr.substring(4, 6);
-    const day = dateStr.substring(6, 8);
-    const hour = dateStr.substring(8, 10);
-    const minute = dateStr.substring(10, 12);
-    return `${year}-${month}-${day} ${hour}:${minute}}`;
-  };
-
   const formatPrice = (price: string) => {
     const num = parseFloat(price || '0');
     if (num >= 100000000) {
@@ -41,52 +53,62 @@ export default function BidTable({
     return `${num.toLocaleString()}원`;
   };
 
+  const SortIcon = ({ field }: { field: string }) => {
+    if (orderBy !== field) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-30" />;
+    return orderDir === 'asc'
+      ? <ChevronUp className="h-3 w-3 ml-1" />
+      : <ChevronDown className="h-3 w-3 ml-1" />;
+  };
+
+  const SortableHead = ({ field, children, className = '' }: { field: string; children: React.ReactNode; className?: string }) => (
+    <TableHead
+      className={`whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <span className="inline-flex items-center">
+        {children}
+        <SortIcon field={field} />
+      </span>
+    </TableHead>
+  );
+
   const getPageNumbers = () => {
     const pages: (number | string)[] = [];
     const maxVisiblePages = 5;
-    
+
     if (totalPages <= maxVisiblePages) {
-      // Show all pages if total is small
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
       }
     } else {
-      // Always show first page
       pages.push(1);
-      
-      // Calculate range around current page
+
       let startPage = Math.max(2, currentPage - 1);
       let endPage = Math.min(totalPages - 1, currentPage + 1);
-      
-      // Adjust if we're near the start
+
       if (currentPage <= 3) {
         endPage = Math.min(totalPages - 1, 4);
       }
-      
-      // Adjust if we're near the end
+
       if (currentPage >= totalPages - 2) {
         startPage = Math.max(2, totalPages - 3);
       }
-      
-      // Add ellipsis after first page if needed
+
       if (startPage > 2) {
         pages.push('...');
       }
-      
-      // Add middle pages
+
       for (let i = startPage; i <= endPage; i++) {
         pages.push(i);
       }
-      
-      // Add ellipsis before last page if needed
+
       if (endPage < totalPages - 1) {
         pages.push('...');
       }
-      
-      // Always show last page
+
       pages.push(totalPages);
     }
-    
+
     return pages;
   };
 
@@ -103,9 +125,21 @@ export default function BidTable({
     <div className="space-y-4">
       {/* Results summary */}
       <div className="flex items-center justify-between text-sm text-gray-600">
-        <span>
-          총 <span className="font-semibold text-gray-900">{totalCount.toLocaleString()}</span>개의 입찰 공고
-        </span>
+        <div className="flex items-center gap-3">
+          <span>
+            총 <span className="font-semibold text-gray-900">{totalCount.toLocaleString()}</span>개
+          </span>
+          <Select value={String(numOfRows)} onValueChange={(v) => onNumOfRowsChange(Number(v))}>
+            <SelectTrigger className="h-7 w-[80px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="20">20줄</SelectItem>
+              <SelectItem value="50">50줄</SelectItem>
+              <SelectItem value="100">100줄</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <span>
           <span className="font-semibold text-gray-900">{currentPage}</span> / {totalPages} 페이지
         </span>
@@ -113,61 +147,133 @@ export default function BidTable({
 
       {/* Table */}
       <div className="rounded-md border overflow-x-auto">
-        <Table>
+        <Table className="break-keep table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[50px]">번호</TableHead>
-              <TableHead className="min-w-[250px]">입찰공고명</TableHead>
-              <TableHead className="min-w-[100px]">공고기관</TableHead>
-              <TableHead className="min-w-[100px]">예산금액</TableHead>
-              <TableHead className="min-w-[100px]">추정가격</TableHead>
-              <TableHead className="min-w-[130px]">입찰마감일시</TableHead>
-              <TableHead className="min-w-[80px]">예가결정방법</TableHead>
-              <TableHead className="min-w-[80px]">계약체결방법</TableHead>
-              <TableHead className="min-w-[80px]">주공종명</TableHead>
-              <TableHead className="min-w-[80px]">업종제한</TableHead>
-              <TableHead className="w-[100px]">투찰</TableHead>
+              <TableHead className="w-[36px] whitespace-nowrap">#</TableHead>
+              <TableHead className="w-[56px] whitespace-nowrap text-center">저장</TableHead>
+              <TableHead className="w-[200px] whitespace-nowrap">공고명</TableHead>
+              <TableHead className="w-[120px] whitespace-nowrap">현장</TableHead>
+              <SortableHead field="bdgtAmt" className="w-[80px]">예산</SortableHead>
+              <SortableHead field="presmptPrce" className="w-[80px]">추정가</SortableHead>
+              <SortableHead field="bidClseDt" className="w-[88px]">마감일시</SortableHead>
+              <TableHead className="w-[90px] whitespace-nowrap">계약방법</TableHead>
+              <TableHead className="w-[130px] whitespace-nowrap">허용업종</TableHead>
+              <TableHead className="w-[110px]">참가지역</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {bids.map((bid, index) => {
-              const globalIndex = (currentPage - 1) * 100 + index + 1;
+              const globalIndex = (currentPage - 1) * numOfRows + index + 1;
               return (
                 <TableRow key={`${bid.bidNtceNo}-${bid.bidNtceOrd}`}>
                   <TableCell className="font-medium">{globalIndex}</TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{bid.bidNtceNm}</p>
+                  <TableCell className="text-center">
+                    {(() => {
+                      const bm = bookmarkMap?.get(bid.bidNtceNo);
+                      const isInterested = bm?.status === 'interested';
+                      const isBidCompleted = bm?.status === 'bid_completed';
+                      return (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            title="관심공고"
+                            className="p-0.5 rounded hover:bg-red-50 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onBookmarkToggle?.(bid, 'interested');
+                            }}
+                          >
+                            <Heart
+                              className={`h-4 w-4 ${isInterested ? 'fill-red-500 text-red-500' : 'text-gray-300 hover:text-red-400'}`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            title="투찰완료"
+                            className="p-0.5 rounded hover:bg-green-50 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onBookmarkToggle?.(bid, 'bid_completed');
+                            }}
+                          >
+                            <CheckCircle2
+                              className={`h-4 w-4 ${isBidCompleted ? 'fill-green-500 text-green-500' : 'text-gray-300 hover:text-green-400'}`}
+                            />
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </TableCell>
+                  <TableCell className="max-w-[200px]">
+                    <button
+                      type="button"
+                      className="text-left w-full group"
+                      onClick={() => onBidClick(bid)}
+                      disabled={isLoading}
+                    >
+                      <p className="font-medium text-blue-600 group-hover:text-blue-800 group-hover:underline cursor-pointer line-clamp-2" title={bid.bidNtceNm}>
+                        {isLoading ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {bid.bidNtceNm}
+                          </span>
+                        ) : bid.bidNtceNm}
+                      </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {bid.bidNtceNo}-{bid.bidNtceOrd}
                       </p>
-                      {bid.cnstrtsiteRgnNm && (
-                        <Badge variant="outline" className="mt-1">
-                          {bid.cnstrtsiteRgnNm}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                          {bid.ntceInsttNm}
                         </Badge>
-                      )}
-                    </div>
+                        {bid.dminsttNm && bid.dminsttNm !== bid.ntceInsttNm && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            수요: {bid.dminsttNm}
+                          </Badge>
+                        )}
+                      </div>
+                    </button>
                   </TableCell>
-                  <TableCell>
-                    <div>
-                      <p className="text-sm">{bid.ntceInsttNm}</p>
-                      {bid.dminsttNm && bid.dminsttNm !== bid.ntceInsttNm && (
-                        <p className="text-xs text-muted-foreground">수요: {bid.dminsttNm}</p>
-                      )}
-                    </div>
+                  <TableCell className="text-sm">
+                    {bid.cnstrtsiteRgnNm || <span className="text-muted-foreground">-</span>}
                   </TableCell>
-                  <TableCell className="font-semibold">{formatPrice(bid.bdgtAmt)}</TableCell>
-                  <TableCell className="font-semibold">{formatPrice(bid.presmptPrce)}</TableCell>
-                  <TableCell className="text-sm">{bid.bidClseDt}</TableCell>
-                  <TableCell className="text-sm">{bid.prearngPrceDcsnMthdNm || ""}</TableCell>
-                  <TableCell className="text-sm">{bid.cntrctCnclsMthdNm || ''}</TableCell>
-                  <TableCell className="text-sm">{bid.mainCnsttyNm || ''}</TableCell>
-                  <TableCell className="text-sm">{bid.indstrytyLmtYn === 'Y' ? '있음' : '없음'}</TableCell>
-                  <TableCell>
-                    <Button size="sm" onClick={() => onCalculate(bid)} className="w-full">
-                      <Calculator className="mr-1 h-4 w-4" />
-                      투찰
-                    </Button>
+                  <TableCell className="font-semibold whitespace-nowrap">{formatPrice(bid.bdgtAmt)}</TableCell>
+                  <TableCell className="font-semibold whitespace-nowrap">{formatPrice(bid.presmptPrce)}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {bid.bidClseDt ? (
+                      <>
+                        <span>{bid.bidClseDt.split(' ')[0]}</span>
+                        <br />
+                        <span className="text-muted-foreground">{bid.bidClseDt.split(' ')[1]}</span>
+                      </>
+                    ) : '-'}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{bid.cntrctCnclsMthdNm || ''}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {bid.permsnIndstrytyListNms ? (
+                      <span title={bid.permsnIndstrytyListNms}>
+                        {bid.permsnIndstrytyListNms.length > 12
+                          ? `${bid.permsnIndstrytyListNms.substring(0, 12)}…`
+                          : bid.permsnIndstrytyListNms}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                    {bid.indstrytyMfrcFldListNms && (
+                      <p className="text-xs text-orange-600 mt-0.5" title={bid.indstrytyMfrcFldListNms}>
+                        {bid.indstrytyMfrcFldListNms.length > 12
+                          ? `${bid.indstrytyMfrcFldListNms.substring(0, 12)}…`
+                          : bid.indstrytyMfrcFldListNms}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {bid.prtcptPsblRgnNms ? (
+                      <span>{bid.prtcptPsblRgnNms}</span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                 </TableRow>
               );
@@ -198,7 +304,7 @@ export default function BidTable({
                   </span>
                 );
               }
-              
+
               const pageNum = page as number;
               return (
                 <Button

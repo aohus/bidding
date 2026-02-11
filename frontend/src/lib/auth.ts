@@ -14,6 +14,7 @@ interface UserResponse {
 
 export class AuthService {
   private static TOKEN_KEY = 'auth_token';
+  private static onExpiredCallback: (() => void) | null = null;
 
   static getToken(): string | null {
     return localStorage.getItem(this.TOKEN_KEY);
@@ -28,7 +29,37 @@ export class AuthService {
   }
 
   static isAuthenticated(): boolean {
+    const expiry = this.getTokenExpiry();
+    if (expiry && expiry <= Date.now()) {
+      this.removeToken();
+      return false;
+    }
     return !!this.getToken();
+  }
+
+  static getTokenExpiry(): number | null {
+    const token = this.getToken();
+    if (!token) return null;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.exp) {
+        return payload.exp * 1000;
+      }
+    } catch {
+      // invalid token
+    }
+    return null;
+  }
+
+  static setOnExpired(callback: (() => void) | null): void {
+    this.onExpiredCallback = callback;
+  }
+
+  static triggerExpired(): void {
+    this.removeToken();
+    if (this.onExpiredCallback) {
+      this.onExpiredCallback();
+    }
   }
 
   static async register(username: string, email: string, password: string): Promise<UserResponse> {

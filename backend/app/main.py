@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
-from app.api import auth, preferences, bids, notifications
+from app.api import auth, preferences, bids, notifications, locations, profile
 from app.services.scheduler import notification_scheduler
+from app.services.bid_sync_scheduler import bid_sync_scheduler
 import asyncio
 
 
@@ -16,13 +17,20 @@ async def lifespan(app: FastAPI):
     if settings.ENABLE_EMAIL_NOTIFICATIONS:
         asyncio.create_task(notification_scheduler.start())
         print("Email notification scheduler started")
-    
+
+    # Startup: Start bid data sync scheduler
+    asyncio.create_task(bid_sync_scheduler.start())
+    print("Bid data sync scheduler started")
+
     yield
-    
-    # Shutdown: Stop the notification scheduler
+
+    # Shutdown
     if settings.ENABLE_EMAIL_NOTIFICATIONS:
         await notification_scheduler.stop()
         print("Email notification scheduler stopped")
+
+    await bid_sync_scheduler.stop()
+    print("Bid data sync scheduler stopped")
 
 
 app = FastAPI(
@@ -46,6 +54,8 @@ app.include_router(auth.router)
 app.include_router(preferences.router)
 app.include_router(bids.router)
 app.include_router(notifications.router)
+app.include_router(locations.router)
+app.include_router(profile.router)
 
 
 @app.get("/")

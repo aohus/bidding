@@ -1,5 +1,5 @@
 import { AuthService } from './auth';
-import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem } from '@/types/bid';
+import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile } from '@/types/bid';
 
 const API_BASE_URL = '/server';
 
@@ -24,8 +24,12 @@ interface Bookmark {
   user_id: string;
   bid_notice_no: string;
   bid_notice_name: string;
+  bid_notice_ord?: string;
+  status: string;
+  bid_price?: number;
   notes?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 class BackendApiService {
@@ -37,79 +41,17 @@ class BackendApiService {
     };
   }
 
+  private async authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const response = await fetch(input, init);
+    if (response.status === 401) {
+      AuthService.triggerExpired();
+    }
+    return response;
+  }
+
   async searchBids(params: BidSearchParams): Promise<BidApiResponse> {
-    // Split comma-separated values (handle potential spaces)
-    const regions = params.prtcptLmtRgnNm 
-      ? params.prtcptLmtRgnNm.split(',').map(s => s.trim()).filter(s => s) 
-      : [undefined];
-    const industries = params.indstrytyNm 
-      ? params.indstrytyNm.split(',').map(s => s.trim()).filter(s => s) 
-      : [undefined];
-
-    // If single request, use direct call
-    if (regions.length <= 1 && industries.length <= 1) {
-      // Ensure we pass the single value (or undefined) correctly
-      const singleParams = {
-        ...params,
-        prtcptLmtRgnNm: regions[0],
-        indstrytyNm: industries[0],
-      };
-      return this.fetchSingleSearch(singleParams);
-    }
-
-    // Create combinations for multiple requests
-    const combinations: BidSearchParams[] = [];
-    for (const region of regions) {
-      for (const industry of industries) {
-        combinations.push({
-          ...params,
-          prtcptLmtRgnNm: region,
-          indstrytyNm: industry,
-        });
-      }
-    }
-
-    // Execute parallel requests
-    const responses = await Promise.all(combinations.map(p => this.fetchSingleSearch(p)));
-
-    // Merge results
-    const mergedItems: any[] = [];
-    const seenIds = new Set();
-    let approximateTotalCount = 0;
-
-    for (const res of responses) {
-      approximateTotalCount += res.response.body.totalCount || 0;
-      const items = res.response.body.items || [];
-      for (const item of items) {
-        if (!seenIds.has(item.bidNtceNo)) {
-          seenIds.add(item.bidNtceNo);
-          mergedItems.push(item);
-        }
-      }
-    }
-
-    // Sort merged results by registration date (descending)
-    mergedItems.sort((a, b) => {
-      // Assuming rgstDt format YYYY-MM-DD HH:MM:SS or similar sortable string
-      if (!a.rgstDt) return 1;
-      if (!b.rgstDt) return -1;
-      return b.rgstDt.localeCompare(a.rgstDt);
-    });
-
-    return {
-      response: {
-        header: {
-          resultCode: '00',
-          resultMsg: 'SUCCESS',
-        },
-        body: {
-          items: mergedItems,
-          numOfRows: params.numOfRows || 100,
-          pageNo: params.pageNo || 1,
-          totalCount: approximateTotalCount, // Approximation
-        },
-      },
-    };
+    // Backend handles comma-separated regions/industries in a single query
+    return this.fetchSingleSearch(params);
   }
 
   private async fetchSingleSearch(params: BidSearchParams): Promise<BidApiResponse> {
@@ -117,17 +59,20 @@ class BackendApiService {
       inqryDiv: params.inqryDiv,
       inqryBgnDt: params.inqryBgnDt,
       inqryEndDt: params.inqryEndDt,
-      prtcptLmtRgnCd: params.prtcptLmtRgnCd,
       prtcptLmtRgnNm: params.prtcptLmtRgnNm,
+      cnstrtsiteRgnNm: params.cnstrtsiteRgnNm,
       indstrytyNm: params.indstrytyNm,
       presmptPrceBgn: params.presmptPrceBgn,
       presmptPrceEnd: params.presmptPrceEnd,
       bidClseExcpYn: params.bidClseExcpYn,
+      useLocationFilter: params.useLocationFilter,
+      orderBy: params.orderBy,
+      orderDir: params.orderDir,
       numOfRows: params.numOfRows || 100,
       pageNo: params.pageNo || 1,
     };
 
-    const response = await fetch(`${API_BASE_URL}/bids/search`, {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/search`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify(searchParams),
@@ -162,7 +107,7 @@ class BackendApiService {
     const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/a-value/${bidNtceNo}/`);
     url.searchParams.append('bid_type', bidType);
 
-    const response = await fetch(url.toString(), {
+    const response = await this.authFetch(url.toString(), {
       method: 'GET',
       headers: this.getAuthHeaders(),
     });
@@ -182,7 +127,7 @@ class BackendApiService {
   }
 
   async savePreference(searchConditions: Record<string, unknown>): Promise<UserPreference> {
-    const response = await fetch(`${API_BASE_URL}/preferences`, {
+    const response = await this.authFetch(`${API_BASE_URL}/preferences`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ search_conditions: searchConditions }),
@@ -197,7 +142,7 @@ class BackendApiService {
   }
 
   async getPreference(): Promise<UserPreference | null> {
-    const response = await fetch(`${API_BASE_URL}/preferences`, {
+    const response = await this.authFetch(`${API_BASE_URL}/preferences`, {
       headers: this.getAuthHeaders(),
     });
 
@@ -214,7 +159,7 @@ class BackendApiService {
   }
 
   async createSavedSearch(searchName: string, filters: Record<string, unknown>): Promise<SavedSearch> {
-    const response = await fetch(`${API_BASE_URL}/preferences/searches`, {
+    const response = await this.authFetch(`${API_BASE_URL}/preferences/searches`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ search_name: searchName, filters }),
@@ -229,7 +174,7 @@ class BackendApiService {
   }
 
   async getSavedSearches(): Promise<SavedSearch[]> {
-    const response = await fetch(`${API_BASE_URL}/preferences/searches`, {
+    const response = await this.authFetch(`${API_BASE_URL}/preferences/searches`, {
       headers: this.getAuthHeaders(),
     });
 
@@ -242,7 +187,7 @@ class BackendApiService {
   }
 
   async deleteSavedSearch(searchId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/preferences/searches/${searchId}`, {
+    const response = await this.authFetch(`${API_BASE_URL}/preferences/searches/${searchId}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -253,11 +198,22 @@ class BackendApiService {
     }
   }
 
-  async createBookmark(bidNoticeNo: string, bidNoticeName: string, notes?: string): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE_URL}/bookmarks`, {
+  async createBookmark(
+    bidNoticeNo: string,
+    bidNoticeName: string,
+    options?: { notes?: string; status?: string; bid_price?: number; bid_notice_ord?: string }
+  ): Promise<Bookmark> {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/bookmarks`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ bid_notice_no: bidNoticeNo, bid_notice_name: bidNoticeName, notes }),
+      body: JSON.stringify({
+        bid_notice_no: bidNoticeNo,
+        bid_notice_name: bidNoticeName,
+        bid_notice_ord: options?.bid_notice_ord,
+        status: options?.status || 'interested',
+        bid_price: options?.bid_price,
+        notes: options?.notes,
+      }),
     });
 
     if (!response.ok) {
@@ -268,8 +224,11 @@ class BackendApiService {
     return response.json();
   }
 
-  async getBookmarks(): Promise<Bookmark[]> {
-    const response = await fetch(`${API_BASE_URL}/bookmarks`, {
+  async getBookmarks(status?: string): Promise<BookmarkWithStatus[]> {
+    const url = status
+      ? `${API_BASE_URL}/bids/bookmarks?bookmark_status=${status}`
+      : `${API_BASE_URL}/bids/bookmarks`;
+    const response = await this.authFetch(url, {
       headers: this.getAuthHeaders(),
     });
 
@@ -281,8 +240,26 @@ class BackendApiService {
     return response.json();
   }
 
+  async updateBookmark(
+    bookmarkId: string,
+    data: { status?: string; bid_price?: number; notes?: string }
+  ): Promise<BookmarkWithStatus> {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/bookmarks/${bookmarkId}`, {
+      method: 'PATCH',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to update bookmark');
+    }
+
+    return response.json();
+  }
+
   async deleteBookmark(bookmarkId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/bookmarks/${bookmarkId}`, {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/bookmarks/${bookmarkId}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
     });
@@ -290,6 +267,130 @@ class BackendApiService {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to delete bookmark');
+    }
+  }
+
+  // --- Bid Results API ---
+
+  async getBidResults(bidNtceNo: string): Promise<BidResultResponse> {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/${bidNtceNo}/results`, {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '개찰결과 조회 실패');
+    }
+
+    return response.json();
+  }
+
+  // --- Business Profile API ---
+
+  async getBusinessProfile(): Promise<BusinessProfile | null> {
+    const response = await this.authFetch(`${API_BASE_URL}/profile/business`, {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (response.status === 404) return null;
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '사업자정보 조회 실패');
+    }
+
+    return response.json();
+  }
+
+  async updateBusinessProfile(data: Partial<BusinessProfile>): Promise<BusinessProfile> {
+    const response = await this.authFetch(`${API_BASE_URL}/profile/business`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '사업자정보 수정 실패');
+    }
+
+    return response.json();
+  }
+
+  // --- Location API ---
+
+  async getLocation(): Promise<UserLocation | null> {
+    const response = await this.authFetch(`${API_BASE_URL}/locations`, {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '소재지 조회 실패');
+    }
+
+    return response.json();
+  }
+
+  async setLocation(locationName: string): Promise<UserLocation> {
+    const response = await this.authFetch(`${API_BASE_URL}/locations`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ location_name: locationName }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '소재지 등록 실패');
+    }
+
+    return response.json();
+  }
+
+  async deleteLocation(): Promise<void> {
+    const response = await this.authFetch(`${API_BASE_URL}/locations`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '소재지 삭제 실패');
+    }
+  }
+
+  // --- Regions API ---
+
+  async getBidRegions(bidNtceNo: string, bidNtceOrd: string = '000'): Promise<PrtcptPsblRgnItem[]> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/${bidNtceNo}/regions`);
+    url.searchParams.append('bidNtceOrd', bidNtceOrd);
+
+    const response = await this.authFetch(url.toString(), {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return response.json();
+  }
+
+  // --- Sync API ---
+
+  async triggerSync(days: number = 30): Promise<void> {
+    const response = await this.authFetch(`${API_BASE_URL}/bids/sync?days=${days}`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '동기화 실패');
     }
   }
 }

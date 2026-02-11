@@ -6,6 +6,13 @@ from app.core.config import settings
 
 # Import your models and database configuration
 from app.db.database import Base
+from app.models.bid import (
+    BidBasisAmount,
+    BidNotice,
+    BidPrtcptPsblRgn,
+    DataSyncLog,
+    UserLocation,
+)
 from app.models.user import SavedSearch, User, UserBookmark, UserPreference
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection

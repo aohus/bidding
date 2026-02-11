@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/preferences", tags=["User Preferences"])
 
 
-@router.post("/", response_model=UserPreferenceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserPreferenceResponse, status_code=status.HTTP_201_CREATED)
 async def create_or_update_preference(
     preference_data: UserPreferenceCreate,
     current_user: User = Depends(get_current_user),
@@ -47,7 +47,7 @@ async def create_or_update_preference(
         return new_preference
 
 
-@router.get("/", response_model=UserPreferenceResponse)
+@router.get("", response_model=UserPreferenceResponse)
 async def get_preference(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -67,7 +67,7 @@ async def get_preference(
     return preference
 
 
-@router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preference(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

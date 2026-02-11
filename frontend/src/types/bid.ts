@@ -33,10 +33,14 @@ export interface BidSearchParams {
   inqryBgnDt: string; // YYYYMMDDHHMM
   inqryEndDt: string; // YYYYMMDDHHMM
   prtcptLmtRgnNm?: string; // 참가제한지역명
+  cnstrtsiteRgnNm?: string; // 공사현장지역명
   indstrytyNm?: string; // 업종명
   presmptPrceBgn?: string; // 추정가격시작
   presmptPrceEnd?: string; // 추정가격종료
   bidClseExcpYn?: 'Y' | 'N'; // 입찰마감제외여부
+  useLocationFilter?: boolean; // 소재지 기준 참가가능지역 필터링
+  orderBy?: string; // 정렬 컬럼
+  orderDir?: 'asc' | 'desc'; // 정렬 방향
   numOfRows?: number;
   pageNo?: number;
   ServiceKey?: string; // Optional now, managed by backend
@@ -86,6 +90,9 @@ export interface BidItem {
   indstrytyMfrcFldEvlYn?:string;  // 업종 주력분야 평가 대상 여부
   rgnLmtBidLocplcJdgmBssCd?: string; // 지역제한입찰소재지판단기준코드
   rgnLmtBidLocplcJdgmBssNm?: string; // 지역제한입찰소재지판단기준명
+  prtcptPsblRgnNms?: string; // 참가가능지역명 (쉼표구분)
+  permsnIndstrytyListNms?: string; // 허용업종목록 (쉼표구분)
+  indstrytyMfrcFldListNms?: string; // 주력분야목록 (쉼표구분)
 }
 
 
@@ -132,5 +139,65 @@ export interface BidAValueItem {
   bssAmtPurcnstcst?: string; // 기초금액순공사비
   smkpAmt?: string;         // 표준시장단가금액 (원화,원)
   smkpAmtYn?: string;       // 표준시장단가금액A적용대상여부
+}
+
+export interface PrtcptPsblRgnItem {
+  bidNtceNo: string;
+  bidNtceOrd?: string;
+  lmtSno?: number;
+  prtcptPsblRgnNm?: string;
+  rgstDt?: string;
+  bsnsDivNm?: string;
+}
+
+export interface UserLocation {
+  location_id: string;
+  user_id: string;
+  location_name: string;
+}
+
+export interface BookmarkWithStatus {
+  bookmark_id: string;
+  user_id: string;
+  bid_notice_no: string;
+  bid_notice_name: string;
+  bid_notice_ord?: string;
+  status: 'interested' | 'bid_completed';
+  bid_price?: number;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+  bid_close_dt?: string;
+  openg_dt?: string;
+  openg_completed?: boolean;
+  actual_bid_price?: string;
+  bid_rate?: string;
+  rank?: string;
+  total_bidders?: number;
+}
+
+export interface BidResultItem {
+  opengRank?: string;
+  prcbdrBizno?: string;
+  prcbdrNm?: string;
+  prcbdrCeoNm?: string;
+  bidprcAmt?: string;
+  bidprcrt?: string;
+  rmrk?: string;
+  bidprcDt?: string;
+  opengRsltDivNm?: string;
+}
+
+export interface BidResultResponse {
+  bid_ntce_no: string;
+  results: BidResultItem[];
+  user_rank?: BidResultItem;
+  total_bidders: number;
+}
+
+export interface BusinessProfile {
+  business_number: string | null;
+  company_name: string | null;
+  representative_name: string | null;
 }
 

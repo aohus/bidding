@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BidAValueItem, BidItem } from '@/types/bid';
 import { calculateOptimalBidPrice } from '@/lib/bidCalculations';
 import { downloadDocument } from '@/lib/api';
-import { Download, FileText, Calculator, Gavel } from 'lucide-react';
+import { backendApi } from '@/lib/backendApi';
+import { Download, FileText, Calculator, ExternalLink, Info, Star, CheckCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 
 interface BidCalculatorProps {
@@ -15,18 +19,62 @@ interface BidCalculatorProps {
 }
 
 export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidCalculatorProps) {
+  const [showBidPriceInput, setShowBidPriceInput] = useState(false);
+  const [bidPriceInput, setBidPriceInput] = useState('');
+  const [bookmarkSaving, setBookmarkSaving] = useState(false);
+
+  const handleSaveBookmark = async (status: 'interested' | 'bid_completed', bidPrice?: number) => {
+    if (!bid) return;
+    try {
+      setBookmarkSaving(true);
+      await backendApi.createBookmark(bid.bidNtceNo, bid.bidNtceNm, {
+        status,
+        bid_price: bidPrice,
+        bid_notice_ord: bid.bidNtceOrd,
+      });
+      toast.success(status === 'interested' ? '관심공고로 저장했습니다' : '투찰완료로 저장했습니다');
+      setShowBidPriceInput(false);
+      setBidPriceInput('');
+    } catch (error: any) {
+      if (error.message?.includes('already exists')) {
+        toast.error('이미 저장된 공고입니다');
+      } else {
+        toast.error('저장에 실패했습니다');
+      }
+    } finally {
+      setBookmarkSaving(false);
+    }
+  };
+
+  const handleBidCompletedWithPrice = () => {
+    const price = parseInt(bidPriceInput.replace(/,/g, ''), 10);
+    if (!price || price <= 0) {
+      toast.error('투찰가를 입력해주세요');
+      return;
+    }
+    handleSaveBookmark('bid_completed', price);
+  };
+
+  const handleBidCompletedWithoutPrice = () => {
+    handleSaveBookmark('bid_completed');
+  };
+
   if (!bid) return null;
 
-  // 기초금액(Basis Amount) 결정: 상세 API에서 받은 bssamt가 최우선, 없으면 검색 결과의 bdgtAmt 사용
   const basisAmount = aValueItem?.bssamt ? parseFloat(aValueItem.bssamt) : parseFloat(bid.bdgtAmt || '0');
   const minSuccessRate = parseFloat(bid.sucsfbidLwltRate || '87.745');
 
   const result = calculateOptimalBidPrice(
-    basisAmount, 
-    bid.prearngPrceDcsnMthdNm || '미제공', 
-    aValueItem, 
+    basisAmount,
+    bid.prearngPrceDcsnMthdNm || '미제공',
+    aValueItem,
     minSuccessRate
   );
+
+  const formatPrice = (price: string | undefined) => {
+    const num = parseFloat(price || '0');
+    return num.toLocaleString();
+  };
 
   const documents = [
     { url: bid.ntceSpecDocUrl1, name: bid.ntceSpecFileNm1 || '공고규격서 1' },
@@ -37,7 +85,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     { url: bid.sptDscrptDocUrl1, name: bid.sptDscrptFileNm1 || '현장설명서 1' },
     { url: bid.sptDscrptDocUrl2, name: bid.sptDscrptFileNm2 || '현장설명서 2' },
     { url: bid.sptDscrptDocUrl3, name: bid.sptDscrptFileNm3 || '현장설명서 3' },
-    { url: bid.bidNtceDtlUrl, name: '입찰공고 페이지' },
   ].filter((doc) => doc.url);
 
   return (
@@ -54,47 +101,93 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* 1. 기본 정보 카드 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">공고번호</span>
-                    <span className="font-medium">{bid.bidNtceNo}-{bid.bidNtceOrd}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">기초금액(bssamt)</span>
-                    <span className="font-medium text-blue-600">{basisAmount.toLocaleString()}원</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">낙찰하한율</span>
-                    <span className="font-medium">{minSuccessRate}%</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* 0. 입찰공고 페이지 링크 - 최상단 배치 */}
+          {bid.bidNtceDtlUrl && (
+            <a
+              href={bid.bidNtceDtlUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <ExternalLink className="h-5 w-5 text-blue-600 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-blue-800">나라장터 입찰공고 페이지 바로가기</p>
+                <p className="text-xs text-blue-600 truncate">{bid.bidNtceDtlUrl}</p>
+              </div>
+            </a>
+          )}
 
-            <Card>
-              <CardContent className="pt-6 space-y-4 text-sm">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Gavel className="h-3.5 w-3.5" /> 낙찰방법
-                  </span>
-                  <div 
-                    className="p-2 bg-gray-50 rounded border border-gray-100 text-xs font-medium text-gray-700 leading-relaxed"
-                    title={bid.sucsfbidMthdNm}
-                  >
-                    {bid.sucsfbidMthdNm || '정보 없음'}
-                  </div>
+          {/* 1. 공고 기본 정보 */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-md flex items-center gap-2">
+                <Info className="h-4 w-4" />
+                공고 기본 정보
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">공고번호</span>
+                  <span className="font-medium">{bid.bidNtceNo}-{bid.bidNtceOrd}</span>
                 </div>
-                <div className="flex justify-between items-center pt-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">공고기관</span>
+                  <span className="font-medium">{bid.ntceInsttNm}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">수요기관</span>
+                  <span className="font-medium">{bid.dminsttNm || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">입찰방식</span>
+                  <span className="font-medium">{bid.bidMethdNm || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">계약체결방법</span>
+                  <span className="font-medium">{bid.cntrctCnclsMthdNm || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">주공종명</span>
+                  <span className="font-medium">{bid.mainCnsttyNm || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">입찰마감</span>
+                  <span className="font-medium">{bid.bidClseDt || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">개찰일시</span>
+                  <span className="font-medium">{bid.opengDt || '-'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">예산금액</span>
+                  <span className="font-medium">{formatPrice(bid.bdgtAmt)}원</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">추정가격</span>
+                  <span className="font-medium">{formatPrice(bid.presmptPrce)}원</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">낙찰하한율</span>
+                  <span className="font-medium">{minSuccessRate}%</span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">예정가격 결정방식</span>
-                  <span className="font-medium">{bid.prearngPrceDcsnMthdNm || '미제공'}</span>
+                  <span className="font-medium">{bid.prearngPrceDcsnMthdNm || '-'}</span>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+                <div className="col-span-2 flex justify-between">
+                  <span className="text-muted-foreground">낙찰방법</span>
+                  <span className="font-medium text-right max-w-[70%]">{bid.sucsfbidMthdNm || '-'}</span>
+                </div>
+                {bid.prtcptPsblRgnNms && (
+                  <div className="col-span-2 flex justify-between">
+                    <span className="text-muted-foreground">참가가능지역</span>
+                    <span className="font-medium text-right max-w-[70%]">{bid.prtcptPsblRgnNms}</span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* 2. 투찰가 분석 결과 */}
           <Card className="border-blue-100 shadow-sm">
@@ -170,10 +263,72 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
             </div>
           )}
 
-          <div className="flex justify-end pt-4">
-            <Button className="w-full sm:w-32 h-11" onClick={onClose}>
-              확인 후 닫기
-            </Button>
+          {/* 액션 버튼 */}
+          <div className="space-y-2 pt-4">
+            {!showBidPriceInput ? (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={bookmarkSaving}
+                  onClick={() => handleSaveBookmark('interested')}
+                >
+                  <Star className="mr-2 h-4 w-4" />
+                  관심공고
+                </Button>
+                <Button
+                  variant="default"
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  disabled={bookmarkSaving}
+                  onClick={() => setShowBidPriceInput(true)}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  투찰완료
+                </Button>
+                <Button variant="secondary" className="sm:w-24" onClick={onClose}>
+                  닫기
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="투찰가를 입력하세요 (원)"
+                    value={bidPriceInput}
+                    onChange={(e) => setBidPriceInput(e.target.value)}
+                    className="flex-1"
+                    type="number"
+                    autoFocus
+                  />
+                  <Button
+                    disabled={bookmarkSaving}
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleBidCompletedWithPrice}
+                  >
+                    투찰완료 저장
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={bookmarkSaving}
+                    onClick={handleBidCompletedWithoutPrice}
+                  >
+                    가격 없이 저장
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setShowBidPriceInput(false);
+                      setBidPriceInput('');
+                    }}
+                  >
+                    취소
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>
