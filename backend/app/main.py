@@ -24,8 +24,9 @@ async def lifespan(app: FastAPI):
         logger.info("Email notification scheduler started")
 
     # Startup: Start bid data sync scheduler
-    asyncio.create_task(bid_sync_scheduler.start())
-    logger.info("Bid data sync scheduler started")
+    if settings.ENABLE_BID_SYNC:
+        asyncio.create_task(bid_sync_scheduler.start())
+        logger.info("Bid data sync scheduler started")
 
     yield
 
@@ -34,8 +35,9 @@ async def lifespan(app: FastAPI):
         await notification_scheduler.stop()
         logger.info("Email notification scheduler stopped")
 
-    await bid_sync_scheduler.stop()
-    logger.info("Bid data sync scheduler stopped")
+    if settings.ENABLE_BID_SYNC:
+        await bid_sync_scheduler.stop()
+        logger.info("Bid data sync scheduler stopped")
 
 
 app = FastAPI(

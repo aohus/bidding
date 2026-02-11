@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Notification Settings
     ENABLE_EMAIL_NOTIFICATIONS: bool = True
     NOTIFICATION_CHECK_INTERVAL: int = 3600  # seconds (1 hour)
+    ENABLE_BID_SYNC: bool = True
     
     @property
     def cors_origins(self) -> List[str]:
