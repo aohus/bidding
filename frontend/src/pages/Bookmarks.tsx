@@ -115,7 +115,7 @@ export default function Dashboard() {
   // 투찰완료 tab state
   const [bidFilter, setBidFilter] = useState<BidFilter>('all');
   const [sortField, setSortField] = useState<SortField>('openg_dt');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -142,6 +142,29 @@ export default function Dashboard() {
       setLoading(true);
       const data = await backendApi.getBookmarks(activeTab);
       setBookmarks(data);
+
+      // 투찰완료 탭: 개찰 시간 지났는데 결과 없는 항목 자동 조회
+      if (activeTab === 'bid_completed') {
+        const now = new Date();
+        const waitingItems = data.filter((b) => {
+          if (b.openg_completed) return false;
+          const openg = parseDt(b.openg_dt);
+          return openg !== null && openg <= now;
+        });
+
+        if (waitingItems.length > 0) {
+          const results = await Promise.allSettled(
+            waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no))
+          );
+          const hasNewResults = results.some(
+            (r) => r.status === 'fulfilled' && r.value.results.length > 0
+          );
+          if (hasNewResults) {
+            const freshData = await backendApi.getBookmarks(activeTab);
+            setBookmarks(freshData);
+          }
+        }
+      }
     } catch {
       toast.error('목록을 불러오는데 실패했습니다');
     } finally {
@@ -487,7 +510,7 @@ export default function Dashboard() {
       { key: 'all',       label: '전체',     color: 'bg-gray-100 text-gray-700 hover:bg-gray-200' },
       { key: 'today',     label: '오늘 개찰', color: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
       { key: 'upcoming',  label: '개찰 전',   color: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
-      { key: 'waiting',   label: '결과 대기', color: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100' },
+
       { key: 'completed', label: '개찰완료',  color: 'bg-green-50 text-green-700 hover:bg-green-100' },
     ];
 
