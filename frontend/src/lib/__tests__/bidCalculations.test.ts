@@ -2,13 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { calculateOptimalBidPrice } from '../bidCalculations';
 import { BidAValueItem } from '@/types/bid';
 
-/**
- * 새 공식:
- *   estimated_price = 기초금액 * (rsrvtnPrceRngBgnRate + rsrvtnPrceRngEndRate) / 200
- *   lower_bound = ((estimated_price - A) * 낙찰하한율 / 100) + A
- *   bid_price = lower_bound * 1.001
- */
-
 const makeAValueItem = (overrides: Partial<BidAValueItem> = {}): BidAValueItem => ({
   bidNtceNo: '20260101001',
   bssamt: '1000000000',
@@ -28,124 +21,165 @@ const makeAValueItem = (overrides: Partial<BidAValueItem> = {}): BidAValueItem =
   ...overrides,
 });
 
+const defaultInput = () => ({
+  basisAmount: '1000000000',
+  bgnRate: '99.855',
+  endRate: '103.045',
+  aValueItem: makeAValueItem(),
+  sucsfbidLwltRate: '87.745',
+});
+
 describe('calculateOptimalBidPrice', () => {
-  describe('정상 계산', () => {
-    it('새 공식으로 투찰가를 계산한다', () => {
-      // A값 = 10000000+5000000+3000000+2000000+1500000+500000+1000000 = 23000000
-      const aValueItem = makeAValueItem();
-      const basisAmount = 1000000000;
-      const minSuccessRate = 87.745;
+  describe('정상 계산 (ok: true)', () => {
+    it('Step 1~6 전체 계산이 올바르다', () => {
+      const result = calculateOptimalBidPrice(defaultInput());
+      if (!result.ok) throw new Error('expected ok');
 
-      // estimated_price = 1000000000 * (99.855 + 103.045) / 200
-      //                 = 1000000000 * 202.9 / 200 = 1014500000
-      // lower_bound = ((1014500000 - 23000000) * 87.745 / 100) + 23000000
-      //             = (991500000 * 0.87745) + 23000000
-      //             = 869991675 + 23000000 = 892991675
-      // bid_price = 892991675 * 1.001 = ceil(893884666.675) = 893884667
+      // Step 1: estimatedPrice = 1000000000 * (99.855 + 103.045) / 200
+      //       = 1000000000 * 202.9 / 200 = round(1014500000) = 1014500000
+      expect(result.estimatedPrice).toBe(1014500000);
 
-      const result = calculateOptimalBidPrice(basisAmount, aValueItem, minSuccessRate);
+      // Step 2: A값 = 10M+5M+3M+2M+1.5M+0.5M+1M = 23000000
+      expect(result.aValue).toBe(23000000);
+
+      // Step 3: lowerLimitRate = 87.745
+      expect(result.lowerLimitRate).toBe(87.745);
+
+      // Step 4: estimatedLowerBound = ceil(((1014500000-23000000)*87.745/100)+23000000)
+      //       = ceil((991500000 * 0.87745) + 23000000)
+      //       = ceil(869991675 + 23000000) = 892991675
+      expect(result.estimatedLowerBound).toBe(892991675);
+
+      // Step 5: optimalBidPrice = ceil(892991675 * 1.001) = 893884667
+      expect(result.optimalBidPrice).toBe(Math.ceil(892991675 * 1.001));
+
+      // Step 6: confidence range
+      // lbLow = ceil(((1000000000*99.855/100 - 23000000)*87.745/100) + 23000000)
+      //       = ceil(((998550000-23000000)*0.87745)+23000000)
+      //       = ceil(975550000*0.87745 + 23000000)
+      //       = ceil(856101972.5 + 23000000) = 879101973
+      expect(result.confidenceRange.low).toBe(
+        Math.ceil(((1000000000 * 99.855 / 100 - 23000000) * 87.745 / 100) + 23000000)
+      );
+      // lbHigh = ceil(((1000000000*103.045/100 - 23000000)*87.745/100) + 23000000)
+      expect(result.confidenceRange.high).toBe(
+        Math.ceil(((1000000000 * 103.045 / 100 - 23000000) * 87.745 / 100) + 23000000)
+      );
 
       expect(result.basisAmount).toBe(1000000000);
-      expect(result.aValue).toBe(23000000);
-      expect(result.minSuccessRate).toBe(87.745);
-      expect(result.estimatedPrice).toBe(1014500000);
-      expect(result.lowerBound).toBe(892991675);
-      expect(result.bidPrice).toBe(Math.ceil(892991675 * 1.001));
+      expect(result.margin).toBe('0.1%');
+      expect(result.note).toBe('낙찰하한가 +0.1% 전략');
     });
 
-    it('qltyMngcst와 smkpAmt가 Y일 때 A값에 포함한다', () => {
-      const aValueItem = makeAValueItem({
-        qltyMngcstAObjYn: 'Y',
-        qltyMngcst: '2000000',
-        smkpAmtYn: 'Y',
-        smkpAmt: '3000000',
+    it('qltyMngcst와 smkpAmt가 Y이면 A값에 포함', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        aValueItem: makeAValueItem({
+          qltyMngcstAObjYn: 'Y',
+          qltyMngcst: '2000000',
+          smkpAmtYn: 'Y',
+          smkpAmt: '3000000',
+        }),
       });
+      if (!result.ok) throw new Error('expected ok');
 
-      const result = calculateOptimalBidPrice(1000000000, aValueItem, 87.745);
-
-      // A값 = 23000000 + 2000000 + 3000000 = 28000000
       expect(result.aValue).toBe(28000000);
+    });
+
+    it('aValueItem이 null이면 A값은 0', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        aValueItem: null,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.aValue).toBe(0);
+      expect(result.optimalBidPrice).toBeGreaterThan(0);
+    });
+
+    it('sucsfbidLwltRate가 없으면 87.745 기본값', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        sucsfbidLwltRate: undefined,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.lowerLimitRate).toBe(87.745);
+    });
+
+    it('confidenceRange.low < estimatedLowerBound < confidenceRange.high', () => {
+      const result = calculateOptimalBidPrice(defaultInput());
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.confidenceRange.low).toBeLessThan(result.estimatedLowerBound);
+      expect(result.estimatedLowerBound).toBeLessThan(result.confidenceRange.high);
     });
   });
 
-  describe('엣지 케이스', () => {
-    it('기초금액이 0이면 모든 결과가 0이다', () => {
-      const result = calculateOptimalBidPrice(0, makeAValueItem(), 87.745);
-
-      expect(result.basisAmount).toBe(0);
-      expect(result.estimatedPrice).toBe(0);
-      expect(result.lowerBound).toBe(0);
-      expect(result.bidPrice).toBe(0);
-    });
-
-    it('aValueItem이 null이면 A값은 0이다', () => {
-      const result = calculateOptimalBidPrice(1000000000, null, 87.745);
-
-      expect(result.aValue).toBe(0);
-      // A=0이므로 lower_bound = estimated_price * 낙찰하한율 / 100
-      expect(result.bidPrice).toBeGreaterThan(0);
-    });
-
-    it('rsrvtnPrceRngBgnRate/EndRate가 undefined이면 기본 범위를 사용한다', () => {
-      const aValueItem = makeAValueItem({
-        rsrvtnPrceRngBgnRate: undefined,
-        rsrvtnPrceRngEndRate: undefined,
+  describe('에러 케이스 (ok: false)', () => {
+    it('basisAmount가 undefined이면 기초금액 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        basisAmount: undefined,
       });
 
-      const result = calculateOptimalBidPrice(1000000000, aValueItem, 87.745);
-
-      // 기본값: +-3% → bgnRate=97, endRate=103 → 평균 100% → estimated = 기초금액
-      expect(result.estimatedPrice).toBe(1000000000);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain('기초금액');
     });
 
-    it('rsrvtnPrceRngBgnRate/EndRate가 빈 문자열이면 기본 범위를 사용한다', () => {
-      const aValueItem = makeAValueItem({
-        rsrvtnPrceRngBgnRate: '',
-        rsrvtnPrceRngEndRate: '',
+    it('basisAmount가 빈 문자열이면 기초금액 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        basisAmount: '',
       });
 
-      const result = calculateOptimalBidPrice(1000000000, aValueItem, 87.745);
-
-      expect(result.estimatedPrice).toBe(1000000000);
-      expect(result.bidPrice).toBeGreaterThan(0);
+      expect(result.ok).toBe(false);
     });
 
-    it('낙찰하한율이 문자열로 전달되어도 정상 동작한다', () => {
-      const result = calculateOptimalBidPrice(
-        '1000000000' as unknown as number,
-        makeAValueItem(),
-        '87.745' as unknown as number
-      );
+    it('basisAmount가 0이면 기초금액 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        basisAmount: '0',
+      });
 
-      expect(result.bidPrice).toBeGreaterThan(0);
+      expect(result.ok).toBe(false);
     });
 
-    it('aValueItem이 숫자(레거시)로 전달되면 A값으로 사용한다', () => {
-      const result = calculateOptimalBidPrice(1000000000, 50000000 as unknown as BidAValueItem, 87.745);
+    it('basisAmount가 NaN이면 기초금액 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        basisAmount: NaN,
+      });
 
-      expect(result.aValue).toBe(50000000);
+      expect(result.ok).toBe(false);
     });
 
-    it('낙찰하한율이 0이면 lowerBound는 A값과 같다', () => {
-      const aValueItem = makeAValueItem();
-      const result = calculateOptimalBidPrice(1000000000, aValueItem, 0);
+    it('bgnRate가 없으면 예비가격 범위 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        bgnRate: undefined,
+      });
 
-      expect(result.lowerBound).toBe(23000000);
-      expect(result.bidPrice).toBe(Math.ceil(23000000 * 1.001));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain('예비가격 범위');
     });
 
-    it('Infinity 입력은 fallback 값을 사용한다', () => {
-      const result = calculateOptimalBidPrice(Infinity, makeAValueItem(), 87.745);
+    it('endRate가 빈 문자열이면 예비가격 범위 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        endRate: '',
+      });
 
-      expect(result.basisAmount).toBe(0);
-      expect(result.bidPrice).toBe(0);
+      expect(result.ok).toBe(false);
     });
 
-    it('NaN 입력은 fallback 값을 사용한다', () => {
-      const result = calculateOptimalBidPrice(NaN, makeAValueItem(), 87.745);
+    it('bgnRate가 "0"이면 예비가격 범위 에러', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        bgnRate: '0',
+      });
 
-      expect(result.basisAmount).toBe(0);
-      expect(result.bidPrice).toBe(0);
+      expect(result.ok).toBe(false);
     });
   });
 });

@@ -61,13 +61,13 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
 
   if (!bid) return null;
 
-  const hasBssamt = !!(aValueItem?.bssamt && parseFloat(aValueItem.bssamt) > 0);
-  const basisAmount = hasBssamt ? parseFloat(aValueItem!.bssamt!) : 0;
-  const minSuccessRate = parseFloat(bid.sucsfbidLwltRate || '87.745');
-
-  const result = hasBssamt
-    ? calculateOptimalBidPrice(basisAmount, aValueItem, minSuccessRate)
-    : null;
+  const result = calculateOptimalBidPrice({
+    basisAmount: aValueItem?.bssamt,
+    bgnRate: aValueItem?.rsrvtnPrceRngBgnRate,
+    endRate: aValueItem?.rsrvtnPrceRngEndRate,
+    aValueItem,
+    sucsfbidLwltRate: bid.sucsfbidLwltRate,
+  });
 
   const formatPrice = (price: string | undefined) => {
     const num = parseFloat(price || '0');
@@ -164,7 +164,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">낙찰하한율</span>
-                  <span className="font-medium">{minSuccessRate}%</span>
+                  <span className="font-medium">{bid.sucsfbidLwltRate || '-'}%</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">예정가격 결정방식</span>
@@ -211,16 +211,25 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               <CardTitle className="text-lg">분석된 최적 투찰 가격</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {result ? (
+              {result.ok ? (
                 <>
-                  {/* 추천 투찰가 */}
+                  {/* 추천 투찰금액 */}
                   <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
-                    <p className="text-sm text-blue-200 mb-1">추천 투찰가</p>
-                    <p className="text-2xl font-bold">{result.bidPrice.toLocaleString()}원</p>
+                    <p className="text-sm text-blue-200 mb-1">추천 투찰금액</p>
+                    <p className="text-2xl font-bold">{result.optimalBidPrice.toLocaleString()}원</p>
                     <div className="flex justify-center gap-6 mt-2 text-sm text-blue-200">
                       <span>사정율 {(result.estimatedPrice / result.basisAmount * 100).toFixed(2)}%</span>
-                      <span>투찰률 {(result.bidPrice / result.basisAmount * 100).toFixed(2)}%</span>
+                      <span>투찰률 {(result.optimalBidPrice / result.basisAmount * 100).toFixed(2)}%</span>
                     </div>
+                    <p className="mt-1 text-xs text-blue-300">{result.note} (마진 {result.margin})</p>
+                  </div>
+
+                  {/* 신뢰 구간 */}
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-center">
+                    <p className="text-xs text-muted-foreground mb-1">낙찰하한가 신뢰 구간</p>
+                    <p className="font-bold text-blue-800">
+                      {result.confidenceRange.low.toLocaleString()}원 ~ {result.confidenceRange.high.toLocaleString()}원
+                    </p>
                   </div>
 
                   {/* 산출 근거 */}
@@ -235,22 +244,22 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                     </div>
                     <div className="p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">낙찰하한율</p>
-                      <p className="font-bold text-gray-800">{result.minSuccessRate}%</p>
+                      <p className="font-bold text-gray-800">{result.lowerLimitRate}%</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">A값</p>
                       <p className="font-bold text-gray-800">{result.aValue.toLocaleString()}원</p>
                     </div>
                     <div className="col-span-2 p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">낙찰하한가</p>
-                      <p className="font-bold text-gray-800">{result.lowerBound.toLocaleString()}원</p>
+                      <p className="text-xs text-muted-foreground">추정 낙찰하한가</p>
+                      <p className="font-bold text-gray-800">{result.estimatedLowerBound.toLocaleString()}원</p>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="p-5 bg-gray-100 rounded-xl text-center">
-                  <p className="text-sm text-muted-foreground mb-1">투찰가 산출 불가</p>
-                  <p className="text-sm text-gray-600">기초금액 정보를 조회할 수 없습니다 (A값 API 데이터 없음)</p>
+                <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                  <p className="text-sm font-semibold text-amber-800 mb-1">추천 불가</p>
+                  <p className="text-sm text-amber-700">{result.error}</p>
                 </div>
               )}
             </CardContent>
