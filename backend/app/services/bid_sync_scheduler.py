@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.db.database import AsyncSessionLocal
 from app.schemas.bid import BidSearchParams
 from app.services.bid_data_service import bid_data_service
-from app.services.narajangter import narajangter_service
+from app.services.narajangter import NaraJangterService, narajangter_service
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ class BidDataSyncScheduler:
             await bid_data_service.save_prtcpt_psbl_rgns(db, regions)
             total += len(regions)
 
-            if len(regions) < 999:
+            if len(regions) < NaraJangterService.MAX_PAGE_SIZE:
                 break
             page += 1
             await asyncio.sleep(0.5)
@@ -337,7 +337,7 @@ class BidDataSyncScheduler:
             await bid_data_service.save_license_limits(db, limits)
             total += len(limits)
 
-            if len(limits) < 999:
+            if len(limits) < NaraJangterService.MAX_PAGE_SIZE:
                 break
             page += 1
             await asyncio.sleep(0.5)

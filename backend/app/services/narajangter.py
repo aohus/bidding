@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from app.core.config import settings
@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 class NaraJangterService:
     """Service for interacting with 나라장터 API."""
 
+    MAX_PAGE_SIZE = 999
+    DEFAULT_TIMEOUT_SECONDS = 30.0
+
     BASE_CNST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
     BASE_SERV_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
     CNSTWK_BSSAMT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount"
@@ -31,10 +34,52 @@ class NaraJangterService:
         'service': BASE_SERV_URL,
     }
 
+    def _parse_api_response(
+        self, data: dict, context: str
+    ) -> Tuple[List[dict], Optional[dict]]:
+        """나라장터 API 공통 응답 파싱.
+
+        Returns:
+            (items_data, body) — 실패 시 ([], None)
+        """
+        if "response" not in data:
+            logger.error(f"{context}: API response missing 'response' key: {data}")
+            return [], None
+
+        header = data["response"]["header"]
+        if header["resultCode"] != "00":
+            logger.error(f"{context}: API Error: {header['resultMsg']}")
+            return [], None
+
+        body = data["response"]["body"]
+        items_data = body.get("items", [])
+
+        if isinstance(items_data, dict):
+            items_data = [items_data]
+        elif items_data is None:
+            items_data = []
+
+        return items_data, body
+
+    def _safe_parse_response(
+        self, response: httpx.Response, context: str
+    ) -> Tuple[List[dict], Optional[dict]]:
+        """HTTP 응답에서 JSON 파싱 + API 응답 파싱을 결합.
+
+        Returns:
+            (items_data, body) — 실패 시 ([], None)
+        """
+        try:
+            data = response.json()
+        except ValueError:
+            logger.error(f"{context}: Failed to parse JSON: {response.text}")
+            return [], None
+
+        return self._parse_api_response(data, context)
+
     async def search_bids(self, work_type, params: BidSearchParams) -> BidApiResponse:
-        url = self.url_dict[work_type]
-        
         """Search for bid notices asynchronously."""
+        url = self.url_dict[work_type]
         query_params = {
             "inqryDiv": params.inqryDiv,
             "inqryBgnDt": params.inqryBgnDt,
@@ -46,12 +91,11 @@ class NaraJangterService:
         }
         logger.info(f"NaraJangterService.search_bids called with params: {query_params}")
 
-        # Add optional parameters
         if params.prtcptLmtRgnNm:
             query_params["prtcptLmtRgnNm"] = params.prtcptLmtRgnNm
         if params.indstrytyNm:
             query_params["indstrytyNm"] = params.indstrytyNm
-        if params.indstrytyCd: 
+        if params.indstrytyCd:
             query_params["indstrytyCd"] = params.indstrytyCd
         if params.presmptPrceBgn:
             query_params["presmptPrceBgn"] = params.presmptPrceBgn
@@ -60,20 +104,18 @@ class NaraJangterService:
         if params.bidClseExcpYn:
             query_params["bidClseExcpYn"] = params.bidClseExcpYn
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(url=url, params=query_params)
             response.raise_for_status()
 
             data = response.json()
 
-            # Check API response status
             if data["response"]["header"]["resultCode"] != "00":
                 raise Exception(f"API Error: {data['response']['header']['resultMsg']}")
 
             body = data["response"]["body"]
             items_data = body.get("items", [])
 
-            # Handle case where items might be a dict with single item
             if isinstance(items_data, dict):
                 items_data = [items_data]
             elif items_data is None:
@@ -106,7 +148,7 @@ class NaraJangterService:
 
         logger.info(f"NaraJangterService.get_bid_a_value called for bidNtceNo: {bidNtceNo}, type: {bid_type}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(target_url, params=query_params)
 
             logger.debug(f"Raw API Response for A-value: {response.text}")
@@ -122,27 +164,9 @@ class NaraJangterService:
                     return None
                 raise e
 
-            try:
-                data = response.json()
-            except ValueError:
-                logger.error(f"Failed to parse JSON response. Raw body: {response.text}")
+            items_data, body = self._safe_parse_response(response, f"get_bid_a_value({bidNtceNo})")
+            if body is None:
                 return None
-
-            if "response" not in data:
-                logger.error(f"API response missing 'response' key. Data: {data}")
-                return None
-
-            if data["response"]["header"]["resultCode"] != "00":
-                logger.error(f"API Error: {data['response']['header']['resultMsg']}")
-                return None
-
-            body = data["response"]["body"]
-            items_data = body.get("items", [])
-
-            if isinstance(items_data, dict):
-                items_data = [items_data]
-            elif items_data is None:
-                items_data = []
 
             if not items_data:
                 logger.info(f"No A-value data found for bidNtceNo: {bidNtceNo}")
@@ -167,7 +191,7 @@ class NaraJangterService:
         inqryBgnDt: str,
         inqryEndDt: str,
         pageNo: int = 1,
-        numOfRows: int = 999,
+        numOfRows: int = MAX_PAGE_SIZE,
     ) -> List[PrtcptPsblRgnItem]:
         """날짜 기준으로 참가가능지역 정보를 조회합니다."""
         query_params = {
@@ -181,7 +205,7 @@ class NaraJangterService:
         }
         logger.info(f"get_prtcpt_psbl_rgn_by_date: {inqryBgnDt} ~ {inqryEndDt}, page={pageNo}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(self.PRTCPT_PSBL_RGN_URL, params=query_params)
 
             try:
@@ -191,28 +215,7 @@ class NaraJangterService:
                     return []
                 raise e
 
-            try:
-                data = response.json()
-            except ValueError:
-                logger.error(f"Failed to parse region JSON response: {response.text}")
-                return []
-
-            if "response" not in data:
-                logger.error(f"Region API response missing 'response' key: {data}")
-                return []
-
-            if data["response"]["header"]["resultCode"] != "00":
-                logger.error(f"Region API Error: {data['response']['header']['resultMsg']}")
-                return []
-
-            body = data["response"]["body"]
-            items_data = body.get("items", [])
-
-            if isinstance(items_data, dict):
-                items_data = [items_data]
-            elif items_data is None:
-                items_data = []
-
+            items_data, _ = self._safe_parse_response(response, "get_prtcpt_psbl_rgn_by_date")
             return [PrtcptPsblRgnItem(**item) for item in items_data]
 
     async def get_prtcpt_psbl_rgn_by_bid(
@@ -226,13 +229,13 @@ class NaraJangterService:
             "bidNtceNo": bidNtceNo,
             "bidNtceOrd": bidNtceOrd,
             "pageNo": 1,
-            "numOfRows": 999,
+            "numOfRows": self.MAX_PAGE_SIZE,
             "type": "json",
             "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
         }
         logger.info(f"get_prtcpt_psbl_rgn_by_bid: {bidNtceNo}-{bidNtceOrd}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(self.PRTCPT_PSBL_RGN_URL, params=query_params)
 
             try:
@@ -242,35 +245,15 @@ class NaraJangterService:
                     return []
                 raise e
 
-            try:
-                data = response.json()
-            except ValueError:
-                logger.error(f"Failed to parse region JSON response: {response.text}")
-                return []
-
-            if "response" not in data:
-                return []
-
-            if data["response"]["header"]["resultCode"] != "00":
-                return []
-
-            body = data["response"]["body"]
-            items_data = body.get("items", [])
-
-            if isinstance(items_data, dict):
-                items_data = [items_data]
-            elif items_data is None:
-                items_data = []
-
+            items_data, _ = self._safe_parse_response(response, "get_prtcpt_psbl_rgn_by_bid")
             return [PrtcptPsblRgnItem(**item) for item in items_data]
-
 
     async def get_license_limit_by_date(
         self,
         inqryBgnDt: str,
         inqryEndDt: str,
         pageNo: int = 1,
-        numOfRows: int = 999,
+        numOfRows: int = MAX_PAGE_SIZE,
     ) -> List[LicenseLimitItem]:
         """날짜 기준으로 면허제한 정보를 조회합니다."""
         query_params = {
@@ -284,7 +267,7 @@ class NaraJangterService:
         }
         logger.info(f"get_license_limit_by_date: {inqryBgnDt} ~ {inqryEndDt}, page={pageNo}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(self.LICENSE_LIMIT_URL, params=query_params)
 
             try:
@@ -294,47 +277,26 @@ class NaraJangterService:
                     return []
                 raise e
 
-            try:
-                data = response.json()
-            except ValueError:
-                logger.error(f"Failed to parse license limit JSON response: {response.text}")
-                return []
-
-            if "response" not in data:
-                logger.error(f"License limit API response missing 'response' key: {data}")
-                return []
-
-            if data["response"]["header"]["resultCode"] != "00":
-                logger.error(f"License limit API Error: {data['response']['header']['resultMsg']}")
-                return []
-
-            body = data["response"]["body"]
-            items_data = body.get("items", [])
-
-            if isinstance(items_data, dict):
-                items_data = [items_data]
-            elif items_data is None:
-                items_data = []
-
+            items_data, _ = self._safe_parse_response(response, "get_license_limit_by_date")
             return [LicenseLimitItem(**item) for item in items_data]
 
     async def get_bid_opening_results(
         self,
-        bid_ntce_no: str,
-        page_no: int = 1,
-        num_of_rows: int = 999,
+        bidNtceNo: str,
+        pageNo: int = 1,
+        numOfRows: int = MAX_PAGE_SIZE,
     ) -> List[BidResultItem]:
         """개찰결과 조회"""
         query_params = {
             "serviceKey": settings.NARAJANGTER_SERVICE_KEY,
-            "pageNo": page_no,
-            "numOfRows": num_of_rows,
-            "bidNtceNo": bid_ntce_no,
+            "pageNo": pageNo,
+            "numOfRows": numOfRows,
+            "bidNtceNo": bidNtceNo,
             "type": "json",
         }
-        logger.info(f"get_bid_opening_results: bidNtceNo={bid_ntce_no}")
+        logger.info(f"get_bid_opening_results: bidNtceNo={bidNtceNo}")
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.get(self.OPENG_RESULT_URL, params=query_params)
 
             try:
@@ -344,28 +306,7 @@ class NaraJangterService:
                     return []
                 raise e
 
-            try:
-                data = response.json()
-            except ValueError:
-                logger.error(f"Failed to parse opening result JSON: {response.text}")
-                return []
-
-            if "response" not in data:
-                logger.error(f"Opening result API missing 'response' key: {data}")
-                return []
-
-            if data["response"]["header"]["resultCode"] != "00":
-                logger.error(f"Opening result API Error: {data['response']['header']['resultMsg']}")
-                return []
-
-            body = data["response"]["body"]
-            items_data = body.get("items", [])
-
-            if isinstance(items_data, dict):
-                items_data = [items_data]
-            elif items_data is None:
-                items_data = []
-
+            items_data, _ = self._safe_parse_response(response, "get_bid_opening_results")
             return [BidResultItem(**item) for item in items_data]
 
 

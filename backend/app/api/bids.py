@@ -3,6 +3,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.user import User, UserBookmark
@@ -18,9 +22,6 @@ from app.schemas.bid import (
 from app.schemas.user import BookmarkCreate, BookmarkResponse, BookmarkUpdate
 from app.services.bid_data_service import bid_data_service
 from app.services.narajangter import narajangter_service
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bids", tags=["Bid Notices"])
@@ -537,7 +538,7 @@ async def get_bid_results(
             page = 1
             while True:
                 page_items = await narajangter_service.get_bid_opening_results(
-                    bidNtceNo, page_no=page, num_of_rows=100
+                    bidNtceNo, pageNo=page, numOfRows=100
                 )
                 if not page_items:
                     break
