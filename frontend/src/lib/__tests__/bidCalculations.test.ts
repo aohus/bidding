@@ -86,7 +86,7 @@ describe('calculateOptimalBidPrice', () => {
       expect(result.bidPrice).toBeGreaterThan(0);
     });
 
-    it('rsrvtnPrceRngBgnRate/EndRate가 없으면 기본 범위를 사용한다', () => {
+    it('rsrvtnPrceRngBgnRate/EndRate가 undefined이면 기본 범위를 사용한다', () => {
       const aValueItem = makeAValueItem({
         rsrvtnPrceRngBgnRate: undefined,
         rsrvtnPrceRngEndRate: undefined,
@@ -96,6 +96,18 @@ describe('calculateOptimalBidPrice', () => {
 
       // 기본값: +-3% → bgnRate=97, endRate=103 → 평균 100% → estimated = 기초금액
       expect(result.estimatedPrice).toBe(1000000000);
+    });
+
+    it('rsrvtnPrceRngBgnRate/EndRate가 빈 문자열이면 기본 범위를 사용한다', () => {
+      const aValueItem = makeAValueItem({
+        rsrvtnPrceRngBgnRate: '',
+        rsrvtnPrceRngEndRate: '',
+      });
+
+      const result = calculateOptimalBidPrice(1000000000, aValueItem, 87.745);
+
+      expect(result.estimatedPrice).toBe(1000000000);
+      expect(result.bidPrice).toBeGreaterThan(0);
     });
 
     it('낙찰하한율이 문자열로 전달되어도 정상 동작한다', () => {

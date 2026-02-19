@@ -52,8 +52,8 @@ export function calculateOptimalBidPrice(
 
   if (aValueItem && typeof aValueItem === 'object') {
     aValue = parseA(aValueItem);
-    bgnRate = safeNum(aValueItem.rsrvtnPrceRngBgnRate, DEFAULT_BGN_RATE);
-    endRate = safeNum(aValueItem.rsrvtnPrceRngEndRate, DEFAULT_END_RATE);
+    bgnRate = safeNum(aValueItem.rsrvtnPrceRngBgnRate, 0) || DEFAULT_BGN_RATE;
+    endRate = safeNum(aValueItem.rsrvtnPrceRngEndRate, 0) || DEFAULT_END_RATE;
   } else if (typeof aValueItem === 'number' && isFinite(aValueItem)) {
     aValue = aValueItem;
   }
