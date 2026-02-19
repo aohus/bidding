@@ -64,12 +64,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const basisAmount = aValueItem?.bssamt ? parseFloat(aValueItem.bssamt) : parseFloat(bid.bdgtAmt || '0');
   const minSuccessRate = parseFloat(bid.sucsfbidLwltRate || '87.745');
 
-  const result = calculateOptimalBidPrice(
-    basisAmount,
-    bid.prearngPrceDcsnMthdNm || '미제공',
-    aValueItem,
-    minSuccessRate
-  );
+  const result = calculateOptimalBidPrice(basisAmount, aValueItem, minSuccessRate);
 
   const formatPrice = (price: string | undefined) => {
     const num = parseFloat(price || '0');
@@ -213,11 +208,21 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               <CardTitle className="text-lg">분석된 최적 투찰 가격</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* 산출 기초 정보 */}
-              <div className="grid grid-cols-3 gap-3 text-sm">
+              {/* 추천 투찰가 */}
+              <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
+                <p className="text-sm text-blue-200 mb-1">추천 투찰가</p>
+                <p className="text-2xl font-bold">{result.bidPrice.toLocaleString()}원</p>
+              </div>
+
+              {/* 산출 근거 */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-muted-foreground">기초금액</p>
                   <p className="font-bold text-gray-800">{result.basisAmount.toLocaleString()}원</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">추정 예정가격</p>
+                  <p className="font-bold text-gray-800">{result.estimatedPrice.toLocaleString()}원</p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-muted-foreground">낙찰하한율</p>
@@ -227,28 +232,10 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                   <p className="text-xs text-muted-foreground">A값</p>
                   <p className="font-bold text-gray-800">{result.aValue.toLocaleString()}원</p>
                 </div>
-              </div>
-
-              {/* 추천 투찰가 3개 */}
-              <div className="grid grid-cols-3 gap-3">
-                {result.recommendations.map((rec) => {
-                  const colorMap: Record<string, { bg: string; text: string }> = {
-                    '공격': { bg: 'bg-red-500', text: 'text-red-100' },
-                    '표준': { bg: 'bg-blue-600', text: 'text-blue-100' },
-                    '안정': { bg: 'bg-emerald-500', text: 'text-emerald-100' },
-                  };
-                  const color = colorMap[rec.label] || colorMap['표준'];
-                  return (
-                    <div key={rec.label} className={`p-4 ${color.bg} text-white rounded-xl shadow-inner`}>
-                      <p className={`text-xs ${color.text} mb-1`}>{rec.label}</p>
-                      <p className="text-lg font-bold">{rec.price.toLocaleString()}원</p>
-                      <div className="flex justify-between mt-2 text-xs opacity-80">
-                        <span>사정율 {rec.adjRate}%</span>
-                        <span>투찰률 {rec.bidRate}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                <div className="col-span-2 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">낙찰하한가</p>
+                  <p className="font-bold text-gray-800">{result.lowerBound.toLocaleString()}원</p>
+                </div>
               </div>
             </CardContent>
           </Card>

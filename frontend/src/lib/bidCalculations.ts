@@ -1,74 +1,84 @@
 import { BidCalculationResult, BidAValueItem } from '@/types/bid';
 
 /**
- * 나라장터 예비가격 제도:
- * - 기초금액을 기준으로 ±N% 범위에서 15개의 예비가격을 생성
- * - 참가자들이 각 2개씩 선택하여, 가장 많이 선택된 4개의 평균이 예정가격
- * - 통계적으로 예정가격은 기초금액 × (범위중앙값)에 수렴
+ * 투찰 추천가 계산:
+ *   estimated_price = 기초금액 × (예비가격범위시작률 + 예비가격범위종료률) / 200
+ *   lower_bound = ((estimated_price - A값) × 낙찰하한율 / 100) + A값
+ *   bid_price = lower_bound × 1.001
  *
- * 최적 투찰가 = ((예정가격 - A값) × 낙찰하한율) + A값
+ * A값은 basePrceAamt 대신 구성항목 합산으로 직접 산출합니다.
+ * (투명성 확보 및 조건부 항목 제어를 위함)
  */
+
+const DEFAULT_BGN_RATE = 97;
+const DEFAULT_END_RATE = 103;
+const BID_PRICE_MARGIN = 1.001;
+
+function safeNum(value: string | number | undefined, fallback: number): number {
+  if (value == null) return fallback;
+  const n = Number(value);
+  return isFinite(n) ? n : fallback;
+}
+
+function parseA(aValueItem: BidAValueItem): number {
+  const parse = (val: string | undefined) => safeNum(val, 0);
+
+  const baseA =
+    parse(aValueItem.sftyMngcst) +
+    parse(aValueItem.sftyChckMngcst) +
+    parse(aValueItem.rtrfundNon) +
+    parse(aValueItem.mrfnHealthInsrprm) +
+    parse(aValueItem.npnInsrprm) +
+    parse(aValueItem.odsnLngtrmrcprInsrprm) +
+    parse(aValueItem.envCnsrvcst);
+
+  const qltyA = aValueItem.qltyMngcstAObjYn === 'Y' ? parse(aValueItem.qltyMngcst) : 0;
+  const smkpA = aValueItem.smkpAmtYn === 'Y' ? parse(aValueItem.smkpAmt) : 0;
+
+  return baseA + qltyA + smkpA;
+}
+
 export function calculateOptimalBidPrice(
   basisAmount: number | string,
-  _priceDecisionMethod: string,
   aValueItem: BidAValueItem | number | null | undefined,
-  minSuccessRate: number | string
+  minSuccessRate: number | string,
 ): BidCalculationResult {
-  const safeBasisAmount = Number(basisAmount) || 0;
-  const safeMinRate = (Number(minSuccessRate) || 0) / 100;
+  const safeBasisAmount = safeNum(basisAmount, 0);
+  const safeMinRate = safeNum(minSuccessRate, 0);
 
-  // A값 계산
   let aValue = 0;
+  let bgnRate = DEFAULT_BGN_RATE;
+  let endRate = DEFAULT_END_RATE;
+
   if (aValueItem && typeof aValueItem === 'object') {
-    const parse = (val: string | undefined) => parseInt(val || '0', 10) || 0;
-
-    const defaultA =
-      parse(aValueItem.sftyMngcst) +
-      parse(aValueItem.sftyChckMngcst) +
-      parse(aValueItem.rtrfundNon) +
-      parse(aValueItem.mrfnHealthInsrprm) +
-      parse(aValueItem.npnInsrprm) +
-      parse(aValueItem.odsnLngtrmrcprInsrprm) +
-      parse(aValueItem.envCnsrvcst);
-
-    const qltyA = aValueItem.qltyMngcstAObjYn === 'Y' ? parse(aValueItem.qltyMngcst) : 0;
-    const smkpA = aValueItem.smkpAmtYn === 'Y' ? parse(aValueItem.smkpAmt) : 0;
-
-    aValue = defaultA + qltyA + smkpA;
+    aValue = parseA(aValueItem);
+    bgnRate = safeNum(aValueItem.rsrvtnPrceRngBgnRate, DEFAULT_BGN_RATE);
+    endRate = safeNum(aValueItem.rsrvtnPrceRngEndRate, DEFAULT_END_RATE);
+  } else if (typeof aValueItem === 'number' && isFinite(aValueItem)) {
+    aValue = aValueItem;
   }
 
-  // 투찰가 계산: ((기초금액 × 사정율 - A) × 하한율) + A
-  const calcBidPrice = (adjRatePercent: number) => {
-    const adjRate = adjRatePercent / 100;
-    const predAvg = safeBasisAmount * adjRate;
-    const result = Math.ceil((predAvg - aValue) * safeMinRate) + aValue;
-    return isNaN(result) ? 0 : result;
-  };
-
-  // 사정율 99.5% ~ 100.2% 범위에서 3개 전략
-  const strategies = [
-    { label: '공격', adjRate: 99.55 },
-    { label: '표준', adjRate: 99.85 },
-    { label: '안정', adjRate: 100.15 },
-  ];
-
-  const recommendations = strategies.map((s) => {
-    const price = calcBidPrice(s.adjRate);
-    const bidRate = safeBasisAmount > 0
-      ? Math.round((price / safeBasisAmount) * 10000) / 100
-      : 0;
+  if (safeBasisAmount === 0) {
     return {
-      label: s.label,
-      price,
-      adjRate: s.adjRate,
-      bidRate,
+      basisAmount: 0,
+      minSuccessRate: safeMinRate,
+      aValue,
+      estimatedPrice: 0,
+      lowerBound: 0,
+      bidPrice: 0,
     };
-  });
+  }
+
+  const estimatedPrice = Math.round(safeBasisAmount * (bgnRate + endRate) / 200);
+  const lowerBound = Math.ceil(((estimatedPrice - aValue) * safeMinRate / 100) + aValue);
+  const bidPrice = Math.ceil(lowerBound * BID_PRICE_MARGIN);
 
   return {
     basisAmount: safeBasisAmount,
-    minSuccessRate: Number(minSuccessRate) || 0,
+    minSuccessRate: safeMinRate,
     aValue,
-    recommendations,
+    estimatedPrice,
+    lowerBound,
+    bidPrice,
   };
 }

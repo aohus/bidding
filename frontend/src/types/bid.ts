@@ -96,18 +96,13 @@ export interface BidItem {
 }
 
 
-export interface BidRecommendation {
-  label: string;
-  price: number;
-  adjRate: number;   // 사정율 (%)
-  bidRate: number;    // 투찰률 (%)
-}
-
 export interface BidCalculationResult {
-  basisAmount: number;
-  minSuccessRate: number;
-  aValue: number;
-  recommendations: BidRecommendation[];
+  basisAmount: number;          // 기초금액
+  minSuccessRate: number;       // 낙찰하한율 (%)
+  aValue: number;               // A값
+  estimatedPrice: number;       // 추정 예정가격
+  lowerBound: number;           // 낙찰하한가
+  bidPrice: number;             // 추천 투찰가
 }
 
 export interface BidAValueItem {
