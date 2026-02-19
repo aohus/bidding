@@ -322,7 +322,7 @@ class NaraJangterService:
         self,
         bid_ntce_no: str,
         page_no: int = 1,
-        num_of_rows: int = 100,
+        num_of_rows: int = 999,
     ) -> List[BidResultItem]:
         """개찰결과 조회"""
         query_params = {
