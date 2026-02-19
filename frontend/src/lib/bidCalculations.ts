@@ -6,7 +6,11 @@ import { BidCalculationResult, BidAValueItem } from '@/types/bid';
  * 배경: 낙찰하한가 이상 최저 투찰금액이 낙찰.
  *       추정 낙찰하한가 × 1.001 (0.1% 마진)이 최적.
  *
- * Step 1: estimatedPrice = basisAmount × (bgnRate + endRate) / 200
+ * 나라장터 API는 예비가격범위율을 상대값(오프셋)으로 반환:
+ *   공사: bgnRate=-3, endRate=+3  → 절대값 97%, 103%
+ *   용역: bgnRate=-2, endRate=+2  → 절대값 98%, 102%
+ *
+ * Step 1: estimatedPrice = basisAmount × (absBgnRate + absEndRate) / 200
  * Step 2: aValue = 구성항목 합산
  * Step 3: lowerLimitRate = bid.sucsfbidLwltRate || 87.745
  * Step 4: estimatedLowerBound = ((estimatedPrice - aValue) × lowerLimitRate/100) + aValue
@@ -20,6 +24,15 @@ function safeNum(value: string | number | undefined | null): number | null {
   if (value == null || value === '') return null;
   const n = Number(value);
   return isFinite(n) ? n : null;
+}
+
+/**
+ * API 예비가격범위율을 절대값(%)으로 변환.
+ * API는 상대값(-3, +3)을 반환하지만, 절대값(97, 103)으로 전달될 수도 있음.
+ * |rate| <= 50이면 상대값으로 판단하여 100을 더함.
+ */
+function toAbsoluteRate(rate: number): number {
+  return Math.abs(rate) <= 50 ? 100 + rate : rate;
 }
 
 function parseA(aValueItem: BidAValueItem): number {
@@ -56,9 +69,16 @@ export function calculateOptimalBidPrice(input: CalcInput): BidCalculationResult
   }
 
   // Step 0: bgnRate / endRate 검증 (fallback 금지)
-  const bgnRate = safeNum(input.bgnRate);
-  const endRate = safeNum(input.endRate);
-  if (bgnRate == null || endRate == null || bgnRate <= 0 || endRate <= 0) {
+  const rawBgnRate = safeNum(input.bgnRate);
+  const rawEndRate = safeNum(input.endRate);
+  if (rawBgnRate == null || rawEndRate == null) {
+    return { ok: false, error: '예비가격 범위를 확인할 수 없습니다. 공고 원문에서 확인 후 수동 입력하세요.' };
+  }
+
+  // 상대값(-3, +3) → 절대값(97, 103) 변환
+  const bgnRate = toAbsoluteRate(rawBgnRate);
+  const endRate = toAbsoluteRate(rawEndRate);
+  if (bgnRate <= 0 || endRate <= 0) {
     return { ok: false, error: '예비가격 범위를 확인할 수 없습니다. 공고 원문에서 확인 후 수동 입력하세요.' };
   }
 

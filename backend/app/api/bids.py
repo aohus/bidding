@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -13,6 +15,7 @@ from app.models.user import User, UserBookmark
 from app.schemas.bid import (
     BidApiResponse,
     BidAValueItem,
+    BidItem,
     BidResultItem,
     BidResultResponse,
     BidSearchParams,
@@ -159,6 +162,30 @@ async def _get_session():
     return AsyncSessionLocal()
 
 
+def _has_rate_fields(item: BidAValueItem) -> bool:
+    """예비가격범위율이 존재하는지 확인 (값이 "0"일 수 있으므로 None/빈문자열만 체크)"""
+    return (
+        item.rsrvtnPrceRngBgnRate is not None
+        and item.rsrvtnPrceRngBgnRate != ""
+        and item.rsrvtnPrceRngEndRate is not None
+        and item.rsrvtnPrceRngEndRate != ""
+    )
+
+
+async def _fetch_and_cache_a_value(
+    db: AsyncSession, bidNtceNo: str, bid_type: str
+) -> BidAValueItem | None:
+    """나라장터 API에서 A값을 조회하고 DB에 캐싱"""
+    result = await narajangter_service.get_bid_a_value(
+        bidNtceNo, bid_type=bid_type
+    )
+    if result:
+        await bid_data_service.save_basis_amount(
+            db, bidNtceNo, bid_type, result.model_dump()
+        )
+    return result
+
+
 @router.get("/a-value/{bidNtceNo}/", response_model=BidAValueItem)
 async def get_bid_a_value(
     bidNtceNo: str,
@@ -166,35 +193,45 @@ async def get_bid_a_value(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """A값 조회 - DB 캐시 우선, API 폴백"""
+    """A값 조회 - DB 캐시 우선, rate 필드 없으면 재조회, 양쪽 bid_type 시도"""
     logger.info(
         f"get_bid_a_value called by user: {current_user.username} "
         f"for bidNtceNo: {bidNtceNo} with type: {bid_type}"
     )
     try:
-        # DB에서 먼저 조회
+        # 1. DB 캐시 조회
         cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, bid_type
         )
-        if cached:
+        if cached and _has_rate_fields(cached):
             return cached
 
-        # API 호출
-        result = await narajangter_service.get_bid_a_value(
-            bidNtceNo, bid_type=bid_type
-        )
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="A-value information not found",
-            )
+        # 2. 캐시에 rate 없음 → API 재조회 (요청된 bid_type)
+        result = await _fetch_and_cache_a_value(db, bidNtceNo, bid_type)
+        if result and _has_rate_fields(result):
+            return result
 
-        # DB에 캐싱
-        await bid_data_service.save_basis_amount(
-            db, bidNtceNo, bid_type, result.model_dump()
+        # 3. 다른 bid_type으로도 시도
+        alt_type = "servc" if bid_type == "cnstwk" else "cnstwk"
+        alt_cached = await bid_data_service.get_basis_amount_from_db(
+            db, bidNtceNo, alt_type
         )
+        if alt_cached and _has_rate_fields(alt_cached):
+            return alt_cached
 
-        return result
+        alt_result = await _fetch_and_cache_a_value(db, bidNtceNo, alt_type)
+        if alt_result and _has_rate_fields(alt_result):
+            return alt_result
+
+        # 4. 어느 쪽이든 데이터가 있으면 rate 없이라도 반환
+        best = result or alt_result or cached or alt_cached
+        if best:
+            return best
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="A-value information not found",
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -203,6 +240,31 @@ async def get_bid_a_value(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch A-value information: {str(e)}",
         )
+
+
+@router.get("/{bidNtceNo}/detail", response_model=BidItem)
+async def get_bid_detail(
+    bidNtceNo: str,
+    bidNtceOrd: str = "000",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """DB에서 공고 상세 정보를 조회합니다."""
+    from app.models.bid import BidNotice
+
+    result = await db.execute(
+        select(BidNotice).where(
+            BidNotice.bid_ntce_no == bidNtceNo,
+            BidNotice.bid_ntce_ord == bidNtceOrd,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bid notice not found",
+        )
+    return BidItem(**row.data)
 
 
 @router.get(

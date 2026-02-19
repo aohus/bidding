@@ -45,8 +45,9 @@ import {
 import { toast } from 'sonner';
 import Header from '@/components/Header';
 import BidResultDialog from '@/components/BidResultDialog';
+import BidCalculator from '@/components/BidCalculator';
 import { useNavigate } from 'react-router-dom';
-import { BookmarkWithStatus } from '@/types/bid';
+import { BidItem, BidAValueItem, BookmarkWithStatus } from '@/types/bid';
 
 // ── helpers ──
 
@@ -92,8 +93,12 @@ function formatAmt(amt?: string) {
   if (!amt) return '-';
   const num = parseFloat(amt);
   if (isNaN(num)) return amt;
-  if (num >= 100000000) return `${(num / 100000000).toFixed(1)}억`;
-  if (num >= 10000) return `${(num / 10000).toFixed(0)}만`;
+  if (num >= 100000000) {
+    const eok = Math.floor(num / 100000000);
+    const man = Math.floor((num % 100000000) / 10000);
+    return man > 0 ? `${eok}억 ${man}만` : `${eok}억`;
+  }
+  if (num >= 10000) return `${Math.floor(num / 10000)}만`;
   return num.toLocaleString();
 }
 
@@ -127,6 +132,12 @@ export default function Dashboard() {
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [resultBidNtceNo, setResultBidNtceNo] = useState<string | null>(null);
   const [resultBidName, setResultBidName] = useState<string>('');
+
+  // BidCalculator popup state
+  const [calcBid, setCalcBid] = useState<BidItem | null>(null);
+  const [calcAValue, setCalcAValue] = useState<BidAValueItem | null>(null);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcLoading, setCalcLoading] = useState(false);
 
   useEffect(() => {
     AuthService.setOnExpired(() => navigate('/'));
@@ -223,6 +234,29 @@ export default function Dashboard() {
     setResultBidNtceNo(bookmark.bid_notice_no);
     setResultBidName(bookmark.bid_notice_name);
     setResultDialogOpen(true);
+  };
+
+  const handleOpenCalculator = async (bookmark: BookmarkWithStatus) => {
+    setCalcLoading(true);
+    const toastId = toast.loading('공고 상세 정보를 불러오는 중...');
+    try {
+      const [bid, aValue] = await Promise.all([
+        backendApi.getBidDetail(bookmark.bid_notice_no, bookmark.bid_notice_ord || '000'),
+        backendApi.getBidAValue(bookmark.bid_notice_no),
+      ]);
+      if (!bid) {
+        toast.error('공고 정보를 찾을 수 없습니다.', { id: toastId });
+        return;
+      }
+      setCalcBid(bid);
+      setCalcAValue(aValue);
+      setCalcOpen(true);
+      toast.dismiss(toastId);
+    } catch {
+      toast.error('공고 정보를 불러오는데 실패했습니다.', { id: toastId });
+    } finally {
+      setCalcLoading(false);
+    }
   };
 
   // ── 투찰완료 tab: filter + sort ──
@@ -410,6 +444,17 @@ export default function Dashboard() {
         isOpen={resultDialogOpen}
         onClose={() => setResultDialogOpen(false)}
       />
+
+      {/* Bid Calculator Popup */}
+      <BidCalculator
+        bid={calcBid}
+        aValueItem={calcAValue}
+        isOpen={calcOpen}
+        onClose={() => {
+          setCalcOpen(false);
+          loadBookmarks();
+        }}
+      />
     </div>
   );
 
@@ -459,15 +504,15 @@ export default function Dashboard() {
                 <TableRow key={b.bookmark_id}>
                   <TableCell className="font-mono text-xs">{b.bid_notice_no}</TableCell>
                   <TableCell className="max-w-[280px]">
-                    <a
-                      href={g2bUrl(b.bid_notice_no, b.bid_notice_ord)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                    <button
+                      type="button"
+                      className="text-left font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer truncate block max-w-full"
+                      onClick={() => handleOpenCalculator(b)}
+                      disabled={calcLoading}
                       title={b.bid_notice_name}
                     >
                       {b.bid_notice_name}
-                    </a>
+                    </button>
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.bid_close_dt)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.openg_dt)}</TableCell>

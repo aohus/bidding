@@ -1,5 +1,5 @@
 import { AuthService } from './auth';
-import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile } from '@/types/bid';
+import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile } from '@/types/bid';
 
 const API_BASE_URL = '/server';
 
@@ -100,6 +100,23 @@ class BackendApiService {
         },
       },
     };
+  }
+
+  async getBidDetail(bidNtceNo: string, bidNtceOrd: string = '000'): Promise<BidItem | null> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/${bidNtceNo}/detail`);
+    url.searchParams.append('bidNtceOrd', bidNtceOrd);
+
+    const response = await this.authFetch(url.toString(), {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '공고 상세 조회 실패');
+    }
+    return response.json();
   }
 
   async getBidAValue(bidNtceNo: string, bidType: string = 'cnstwk'): Promise<BidAValueItem | null> {
