@@ -212,6 +212,10 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
                 <p className="text-sm text-blue-200 mb-1">추천 투찰가</p>
                 <p className="text-2xl font-bold">{result.bidPrice.toLocaleString()}원</p>
+                <div className="flex justify-center gap-6 mt-2 text-sm text-blue-200">
+                  <span>사정율 {result.basisAmount > 0 ? (result.estimatedPrice / result.basisAmount * 100).toFixed(2) : 0}%</span>
+                  <span>투찰률 {result.basisAmount > 0 ? (result.bidPrice / result.basisAmount * 100).toFixed(2) : 0}%</span>
+                </div>
               </div>
 
               {/* 산출 근거 */}
