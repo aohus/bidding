@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 from app.core.config import settings
@@ -108,7 +108,13 @@ class NaraJangterService:
             response = await client.get(url=url, params=query_params)
             response.raise_for_status()
 
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                raise Exception(f"Failed to parse JSON response from search_bids: {response.text}")
+
+            if "response" not in data:
+                raise Exception(f"API response missing 'response' key: {data}")
 
             if data["response"]["header"]["resultCode"] != "00":
                 raise Exception(f"API Error: {data['response']['header']['resultMsg']}")
@@ -211,7 +217,8 @@ class NaraJangterService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
+                if e.response.status_code in (404, 429):
+                    logger.warning(f"get_prtcpt_psbl_rgn_by_date: HTTP {e.response.status_code}")
                     return []
                 raise e
 
@@ -241,7 +248,8 @@ class NaraJangterService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
+                if e.response.status_code in (404, 429):
+                    logger.warning(f"get_prtcpt_psbl_rgn_by_bid: HTTP {e.response.status_code}")
                     return []
                 raise e
 
@@ -273,7 +281,8 @@ class NaraJangterService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
+                if e.response.status_code in (404, 429):
+                    logger.warning(f"get_license_limit_by_date: HTTP {e.response.status_code}")
                     return []
                 raise e
 
@@ -302,7 +311,8 @@ class NaraJangterService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
+                if e.response.status_code in (404, 429):
+                    logger.warning(f"get_bid_opening_results: HTTP {e.response.status_code}")
                     return []
                 raise e
 

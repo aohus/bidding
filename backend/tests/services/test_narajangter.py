@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
+import httpx
+
 from app.services.narajangter import NaraJangterService
 from app.schemas.bid import (
     BidAValueItem,
@@ -235,6 +237,16 @@ class TestGetPrtcptPsblRgnByDate:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_429_returns_empty(self, service):
+        error = make_http_status_error(429)
+        mock_resp = make_mock_response(raise_for_status_error=error)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            result = await service.get_prtcpt_psbl_rgn_by_date("x", "y")
+
+        assert result == []
+
+    @pytest.mark.asyncio
     async def test_default_num_of_rows_is_999(self, service):
         """기본 numOfRows가 999인지 확인"""
         mock_resp = make_mock_response(json_data=make_success_response([]))
@@ -275,6 +287,16 @@ class TestGetPrtcptPsblRgnByBid:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_429_returns_empty(self, service):
+        error = make_http_status_error(429)
+        mock_resp = make_mock_response(raise_for_status_error=error)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            result = await service.get_prtcpt_psbl_rgn_by_bid("RATELIMITED")
+
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # get_license_limit_by_date
@@ -311,6 +333,16 @@ class TestGetLicenseLimitByDate:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_429_returns_empty(self, service):
+        error = make_http_status_error(429)
+        mock_resp = make_mock_response(raise_for_status_error=error)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            result = await service.get_license_limit_by_date("x", "y")
+
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # get_bid_opening_results
@@ -335,6 +367,16 @@ class TestGetBidOpeningResults:
 
         with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
             result = await service.get_bid_opening_results("NOTFOUND")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_429_returns_empty(self, service):
+        error = make_http_status_error(429)
+        mock_resp = make_mock_response(raise_for_status_error=error)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            result = await service.get_bid_opening_results("RATELIMITED")
 
         assert result == []
 
@@ -430,4 +472,47 @@ class TestSearchBids:
                 inqryEndDt="202402012359",
             )
             with pytest.raises(Exception, match="API Error"):
+                await service.search_bids("contract", params)
+
+    @pytest.mark.asyncio
+    async def test_404_raises_http_error(self, service):
+        """search_bids는 404 시 HTTPStatusError를 propagate"""
+        error = make_http_status_error(404)
+        mock_resp = make_mock_response(raise_for_status_error=error)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            params = BidSearchParams(
+                inqryDiv="1",
+                inqryBgnDt="202402010000",
+                inqryEndDt="202402012359",
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await service.search_bids("contract", params)
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_raises_with_message(self, service):
+        """search_bids는 JSON 파싱 실패 시 명확한 에러 메시지를 포함한 Exception을 raise"""
+        mock_resp = make_mock_response(json_raises=True)
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            params = BidSearchParams(
+                inqryDiv="1",
+                inqryBgnDt="202402010000",
+                inqryEndDt="202402012359",
+            )
+            with pytest.raises(Exception, match="Failed to parse"):
+                await service.search_bids("contract", params)
+
+    @pytest.mark.asyncio
+    async def test_missing_response_key_raises_with_message(self, service):
+        """search_bids는 'response' 키 없을 시 명확한 에러 메시지를 포함한 Exception을 raise"""
+        mock_resp = make_mock_response(json_data={"bad": "data"})
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp):
+            params = BidSearchParams(
+                inqryDiv="1",
+                inqryBgnDt="202402010000",
+                inqryEndDt="202402012359",
+            )
+            with pytest.raises(Exception, match="missing 'response'"):
                 await service.search_bids("contract", params)
