@@ -64,9 +64,10 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const result = calculateOptimalBidPrice({
     basisAmount: aValueItem?.bssamt,
     fallbackBasisAmount: bid.asignBdgtAmt,
-    priceRangeEndRate: aValueItem?.rsrvtnPrceRngEndRate,
     aValueItem,
     sucsfbidLwltRate: bid.sucsfbidLwltRate,
+    prtcptPsblRgnNms: bid.prtcptPsblRgnNms,
+    permsnIndstrytyListNms: bid.permsnIndstrytyListNms,
   });
 
   const formatPrice = (price: string | undefined) => {

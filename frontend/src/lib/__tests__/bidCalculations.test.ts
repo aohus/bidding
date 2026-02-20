@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { calculateOptimalBidPrice } from '../bidCalculations';
+import {
+  calculateOptimalBidPrice,
+  determineRegionScope,
+  determineLicenseGroup,
+  determineAmountRange,
+} from '../bidCalculations';
 import { BidAValueItem } from '@/types/bid';
 
 const makeAValueItem = (overrides: Partial<BidAValueItem> = {}): BidAValueItem => ({
@@ -22,93 +27,262 @@ const makeAValueItem = (overrides: Partial<BidAValueItem> = {}): BidAValueItem =
 });
 
 const defaultInput = () => ({
-  basisAmount: '1000000000',
-  fallbackBasisAmount: undefined as string | undefined,
-  priceRangeEndRate: '+3' as string | undefined,
+  basisAmount: '1000000000' as string | number | undefined | null,
+  fallbackBasisAmount: undefined as string | number | undefined | null,
   aValueItem: makeAValueItem(),
-  sucsfbidLwltRate: '87.745',
+  sucsfbidLwltRate: '87.745' as string | undefined,
+  prtcptPsblRgnNms: '경기도' as string | undefined,
+  permsnIndstrytyListNms: '토공사업' as string | undefined,
+});
+
+describe('determineRegionScope', () => {
+  it('undefined → province', () => {
+    expect(determineRegionScope(undefined)).toBe('province');
+  });
+
+  it('"경기도" (단일 도) → province', () => {
+    expect(determineRegionScope('경기도')).toBe('province');
+  });
+
+  it('"서울특별시, 경기도" (콤마) → province', () => {
+    expect(determineRegionScope('서울특별시, 경기도')).toBe('province');
+  });
+
+  it('"경기도 수원시, 경기도 성남시" (콤마) → province', () => {
+    expect(determineRegionScope('경기도 수원시, 경기도 성남시')).toBe('province');
+  });
+
+  it('"경기도 성남시" (도+시) → city', () => {
+    expect(determineRegionScope('경기도 성남시')).toBe('city');
+  });
+
+  it('"강원도 춘천시" (도+시) → city', () => {
+    expect(determineRegionScope('강원도 춘천시')).toBe('city');
+  });
+
+  it('"경기도 양평군" (도+군) → city', () => {
+    expect(determineRegionScope('경기도 양평군')).toBe('city');
+  });
+
+  it('"서울특별시 강남구" (시+구) → city', () => {
+    expect(determineRegionScope('서울특별시 강남구')).toBe('city');
+  });
+
+  it('"전국" → province', () => {
+    expect(determineRegionScope('전국')).toBe('province');
+  });
+});
+
+describe('determineLicenseGroup', () => {
+  it('undefined → general', () => {
+    expect(determineLicenseGroup(undefined)).toBe('general');
+  });
+
+  it('"토공사업" → general', () => {
+    expect(determineLicenseGroup('토공사업')).toBe('general');
+  });
+
+  it('"조경식재ㆍ시설물공사업" → landscaping', () => {
+    expect(determineLicenseGroup('조경식재ㆍ시설물공사업')).toBe('landscaping');
+  });
+
+  it('"나무병원(1종)" → landscaping', () => {
+    expect(determineLicenseGroup('나무병원(1종)')).toBe('landscaping');
+  });
+
+  it('"일반건설업, 조경식재공사업" → landscaping', () => {
+    expect(determineLicenseGroup('일반건설업, 조경식재공사업')).toBe('landscaping');
+  });
+});
+
+describe('determineAmountRange', () => {
+  it('50,000,000 (5천만) → under1', () => {
+    expect(determineAmountRange(50_000_000)).toBe('under1');
+  });
+
+  it('99,999,999 → under1', () => {
+    expect(determineAmountRange(99_999_999)).toBe('under1');
+  });
+
+  it('100,000,000 (1억) → from1to3', () => {
+    expect(determineAmountRange(100_000_000)).toBe('from1to3');
+  });
+
+  it('200,000,000 (2억) → from1to3', () => {
+    expect(determineAmountRange(200_000_000)).toBe('from1to3');
+  });
+
+  it('299,999,999 → from1to3', () => {
+    expect(determineAmountRange(299_999_999)).toBe('from1to3');
+  });
+
+  it('300,000,000 (3억) → over3', () => {
+    expect(determineAmountRange(300_000_000)).toBe('over3');
+  });
+
+  it('1,000,000,000 (10억) → over3', () => {
+    expect(determineAmountRange(1_000_000_000)).toBe('over3');
+  });
 });
 
 describe('calculateOptimalBidPrice', () => {
-  describe('사정율 결정', () => {
-    it('±3 범위 → 사정율 99.7%', () => {
+  describe('사정율 lookup (지역 × 면허 × 금액)', () => {
+    it('도 + 전체면허 + 3억이상 → 100.140', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
-        priceRangeEndRate: '+3',
+        prtcptPsblRgnNms: '경기도',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '500000000',
       });
       if (!result.ok) throw new Error('expected ok');
-
-      expect(result.assessmentRate).toBe(99.7);
-      expect(result.estimatedPrice).toBe(Math.round(1000000000 * 99.7 / 100));
+      expect(result.assessmentRate).toBe(100.140);
     });
 
-    it('±2 범위 → 사정율 99.9%', () => {
+    it('도 + 전체면허 + 1억미만 → 99.930', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
-        priceRangeEndRate: '+2',
+        prtcptPsblRgnNms: '경기도',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '80000000',
+        aValueItem: makeAValueItem({ bssamt: '80000000' }),
       });
       if (!result.ok) throw new Error('expected ok');
-
-      expect(result.assessmentRate).toBe(99.9);
-      expect(result.estimatedPrice).toBe(Math.round(1000000000 * 99.9 / 100));
+      expect(result.assessmentRate).toBe(99.930);
     });
 
-    it('endRate 없으면 기본 사정율 99.7%', () => {
+    it('도 + 전체면허 + 1~3억 → 100.092', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
-        priceRangeEndRate: undefined,
+        prtcptPsblRgnNms: '경기도',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '200000000',
+        aValueItem: makeAValueItem({ bssamt: '200000000' }),
       });
       if (!result.ok) throw new Error('expected ok');
-
-      expect(result.assessmentRate).toBe(99.7);
+      expect(result.assessmentRate).toBe(100.092);
     });
 
-    it('절대값 endRate 103 → ±3 범위 → 사정율 99.7%', () => {
+    it('도 + 조경/나무 + 1~3억 → 99.822', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
-        priceRangeEndRate: '103',
+        prtcptPsblRgnNms: '경기도',
+        permsnIndstrytyListNms: '조경식재ㆍ시설물공사업',
+        basisAmount: '200000000',
+        aValueItem: makeAValueItem({ bssamt: '200000000' }),
       });
       if (!result.ok) throw new Error('expected ok');
-
-      expect(result.assessmentRate).toBe(99.7);
+      expect(result.assessmentRate).toBe(99.822);
     });
 
-    it('절대값 endRate 102 → ±2 범위 → 사정율 99.9%', () => {
+    it('도 + 조경/나무 + 3억이상 → 99.502', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
-        priceRangeEndRate: '102',
+        prtcptPsblRgnNms: '경기도',
+        permsnIndstrytyListNms: '나무병원(1종)',
+        basisAmount: '500000000',
       });
       if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(99.502);
+    });
 
-      expect(result.assessmentRate).toBe(99.9);
+    it('시군 + 전체면허 + 1억미만 → 99.536', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: '경기도 성남시',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '80000000',
+        aValueItem: makeAValueItem({ bssamt: '80000000' }),
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(99.536);
+    });
+
+    it('시군 + 전체면허 + 1~3억 → 99.994', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: '경기도 수원시',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '200000000',
+        aValueItem: makeAValueItem({ bssamt: '200000000' }),
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(99.994);
+    });
+
+    it('콤마(여러 지역) → province 처리 → 도 rate 적용', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: '서울특별시, 경기도',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '500000000',
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(100.140);
+    });
+  });
+
+  describe('fallback 사정율', () => {
+    it('시군 + 전체면허 + 3억이상 (시군에 없음) → 도 rate fallback → 100.140', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: '경기도 성남시',
+        permsnIndstrytyListNms: '토공사업',
+        basisAmount: '500000000',
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(100.140);
+    });
+
+    it('시군 + 조경/나무 + 1~3억 (시군에 조경 없음) → 도+조경 fallback → 99.822', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: '경기도 성남시',
+        permsnIndstrytyListNms: '조경식재ㆍ시설물공사업',
+        basisAmount: '200000000',
+        aValueItem: makeAValueItem({ bssamt: '200000000' }),
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(99.822);
+    });
+
+    it('지역/면허 미제공 시 기본값 (province + general)', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        prtcptPsblRgnNms: undefined,
+        permsnIndstrytyListNms: undefined,
+      });
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.assessmentRate).toBe(100.140);
     });
   });
 
   describe('정상 계산 (ok: true)', () => {
-    it('공사(±3) 전체 계산이 올바르다', () => {
+    it('도 + 전체면허 + 3억이상 전체 계산', () => {
       const result = calculateOptimalBidPrice(defaultInput());
       if (!result.ok) throw new Error('expected ok');
 
-      // Step 1: estimatedPrice = 1000000000 × 99.7 / 100 = 997000000
-      expect(result.estimatedPrice).toBe(997000000);
+      // assessmentRate = 100.140 (province + general + over3)
+      expect(result.assessmentRate).toBe(100.140);
 
-      // Step 2: A값 = 10M+5M+3M+2M+1.5M+0.5M+1M = 23000000
+      // estimatedPrice = 1,000,000,000 × 100.140 / 100 = 1,001,400,000
+      expect(result.estimatedPrice).toBe(Math.round(1000000000 * 100.140 / 100));
+
+      // A값 = 10M+5M+3M+2M+1.5M+0.5M+1M = 23,000,000
       expect(result.aValue).toBe(23000000);
 
-      // Step 3: lowerLimitRate = 87.745
       expect(result.lowerLimitRate).toBe(87.745);
 
-      // Step 4: estimatedLowerBound
+      // estimatedLowerBound
       expect(result.estimatedLowerBound).toBe(
-        Math.ceil(((997000000 - 23000000) * 87.745 / 100) + 23000000)
+        Math.ceil(((result.estimatedPrice - 23000000) * 87.745 / 100) + 23000000)
       );
 
-      // Step 5: optimalBidPrice = ceil(estimatedLowerBound * 1.001)
+      // optimalBidPrice = ceil(estimatedLowerBound * 1.001)
       expect(result.optimalBidPrice).toBe(
         Math.ceil(result.estimatedLowerBound * 1.001)
       );
 
-      // Step 6: confidence range (고정 97%, 103% 기준)
+      // confidence range
       expect(result.confidenceRange.low).toBe(
         Math.ceil(((1000000000 * 97 / 100 - 23000000) * 87.745 / 100) + 23000000)
       );
