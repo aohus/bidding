@@ -27,7 +27,7 @@ export type AmountRange = 'under1' | 'from1to3' | 'over3';
 const RATE_TABLE: Record<RegionScope, Partial<Record<LicenseGroup, Partial<Record<AmountRange, number>>>>> = {
   province: {
     general: { under1: 99.930, from1to3: 100.092, over3: 100.140 },
-    landscaping: { under1: 99.301, from1to3: 99.822, over3: 99.502 },
+    landscaping: { under1: 99.321, from1to3: 99.822, over3: 99.502 },
   },
   city: {
     general: { under1: 99.536, from1to3: 99.994 },
