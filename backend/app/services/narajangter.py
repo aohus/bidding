@@ -137,6 +137,51 @@ class NaraJangterService:
                 pageNo=body.get("pageNo", 1),
             )
 
+    async def get_bid_notice_by_no(
+        self, bidNtceNo: str, bid_type: str = "cnstwk"
+    ) -> Optional[BidItem]:
+        """공고번호로 단건 공고를 조회합니다 (공고검색 API)."""
+        url = self.BASE_CNST_URL
+        if bid_type and bid_type.lower() in ["servc", "service", "용역"]:
+            url = self.BASE_SERV_URL
+
+        query_params = {
+            "bidNtceNo": bidNtceNo,
+            "inqryDiv": "1",
+            "inqryBgnDt": "202501010000",
+            "inqryEndDt": "202712312359",
+            "numOfRows": 1,
+            "pageNo": 1,
+            "type": "json",
+            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+        }
+
+        logger.info(f"get_bid_notice_by_no called for {bidNtceNo}, type={bid_type}")
+
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
+            try:
+                response = await client.get(url=url, params=query_params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (404, 429):
+                    return None
+                raise
+
+            items_data, body = self._safe_parse_response(
+                response, f"get_bid_notice_by_no({bidNtceNo})"
+            )
+            if not items_data:
+                return None
+
+            item = next(
+                (d for d in items_data if d.get("bidNtceNo") == bidNtceNo),
+                items_data[0] if items_data else None,
+            )
+            if not item:
+                return None
+
+            return BidItem(**item)
+
     async def get_bid_a_value(self, bidNtceNo: str, bid_type: str = "cnstwk") -> Optional[BidAValueItem]:
         """Get A-value and base amount information for a specific bid notice."""
         query_params = {

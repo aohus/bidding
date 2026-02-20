@@ -178,7 +178,8 @@ async def _should_retry_bssamt(
 ) -> bool:
     """bssamt 미공개 시 API 재시도 여부를 판단합니다.
 
-    조건: 개찰일 3일 이내 + 마지막 조회 후 1시간 경과
+    조건: (개찰일 3일 이내 또는 개찰일 경과) + 마지막 조회 후 1시간 경과
+    개찰일이 3일 넘게 남은 경우에만 재시도하지 않음 (아직 공개 전)
     """
     from app.models.bid import BidNotice
     from datetime import timezone
@@ -235,6 +236,28 @@ async def _fetch_and_cache_a_value(
     return result
 
 
+async def _refresh_bid_notice(
+    db: AsyncSession, bidNtceNo: str, bid_type: str
+) -> BidItem | None:
+    """공고검색 API에서 공고 데이터를 재조회하여 bid_notices를 갱신합니다.
+
+    기초금액 미공개 시 asignBdgtAmt(배정예산금액)을 확보하기 위해 사용.
+    요청된 bid_type으로 먼저 시도, 실패 시 다른 타입으로 재시도.
+    """
+    for try_type in [bid_type, "servc" if bid_type == "cnstwk" else "cnstwk"]:
+        result = await narajangter_service.get_bid_notice_by_no(
+            bidNtceNo, bid_type=try_type
+        )
+        if result:
+            await bid_data_service.save_bid_notices(db, [result])
+            logger.info(
+                f"Refreshed bid notice {bidNtceNo} via 공고 API ({try_type}), "
+                f"asignBdgtAmt={result.asignBdgtAmt}"
+            )
+            return result
+    return None
+
+
 @router.get("/a-value/{bidNtceNo}/", response_model=BidAValueItem)
 async def get_bid_a_value(
     bidNtceNo: str,
@@ -248,22 +271,6 @@ async def get_bid_a_value(
         f"for bidNtceNo: {bidNtceNo} with type: {bid_type}"
     )
     try:
-        # 0. bssamt 미공개 캐시 쿨다운 체크
-        cached_row = await bid_data_service.get_basis_amount_row(
-            db, bidNtceNo, bid_type
-        )
-        if cached_row:
-            cached_item = BidAValueItem(**cached_row.data)
-            if not _has_bssamt(cached_item):
-                should_retry = await _should_retry_bssamt(
-                    db, bidNtceNo, cached_row.fetched_at
-                )
-                if not should_retry:
-                    logger.info(
-                        f"bssamt cooldown active for {bidNtceNo}, returning cached"
-                    )
-                    return cached_item
-
         # 1. DB 캐시 조회
         cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, bid_type
@@ -271,18 +278,12 @@ async def get_bid_a_value(
         if cached and _has_rate_fields(cached) and _has_bssamt(cached):
             return cached
 
-        # 2. 캐시에 rate/bssamt 없음 → API 재조회 (요청된 bid_type)
+        # 2. 캐시에 rate/bssamt 없음 → A값 API 조회 (요청된 bid_type)
         result = await _fetch_and_cache_a_value(db, bidNtceNo, bid_type)
         if result and _has_rate_fields(result):
             return result
 
-        # API 결과에 bssamt 없으면 fetched_at 갱신 (쿨다운 타이머 리셋)
-        if cached_row and not (result and _has_bssamt(result)):
-            await bid_data_service.touch_basis_amount_fetched_at(
-                db, bidNtceNo, bid_type
-            )
-
-        # 3. 다른 bid_type으로도 시도
+        # 3. 다른 bid_type으로도 A값 시도
         alt_type = "servc" if bid_type == "cnstwk" else "cnstwk"
         alt_cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, alt_type
@@ -294,8 +295,24 @@ async def get_bid_a_value(
         if alt_result and _has_rate_fields(alt_result):
             return alt_result
 
-        # 4. 어느 쪽이든 데이터가 있으면 rate 없이라도 반환
+        # 4. bssamt 없음 → 공고 API로 bid_notices 갱신 (asignBdgtAmt 확보)
         best = result or alt_result or cached or alt_cached
+        if best and not _has_bssamt(best):
+            cached_row = await bid_data_service.get_basis_amount_row(
+                db, bidNtceNo, bid_type
+            )
+            should_retry = await _should_retry_bssamt(
+                db, bidNtceNo, cached_row.fetched_at if cached_row else None
+            )
+            if should_retry:
+                await _refresh_bid_notice(db, bidNtceNo, bid_type)
+                # 쿨다운 타이머 리셋
+                if cached_row:
+                    await bid_data_service.touch_basis_amount_fetched_at(
+                        db, bidNtceNo, bid_type
+                    )
+
+        # 5. 어느 쪽이든 데이터가 있으면 반환
         if best:
             return best
 

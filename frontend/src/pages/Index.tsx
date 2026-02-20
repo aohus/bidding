@@ -230,8 +230,19 @@ export default function Index() {
       const bidType = (bid.mainCnsttyNm || bid.cnstrtsiteRgnNm) ? 'cnstwk' : 'servc';
       const aValueItem = await backendApi.getBidAValue(bid.bidNtceNo, bidType);
 
+      // bssamt가 없으면 백엔드가 공고 API로 bid_notices를 갱신했을 수 있음
+      // → bid detail을 다시 fetch하여 asignBdgtAmt 확보
+      const hasBssamt = aValueItem?.bssamt && aValueItem.bssamt.trim() !== '' && aValueItem.bssamt !== '0';
+      let finalBid = bid;
+      if (!hasBssamt) {
+        const refreshed = await backendApi.getBidDetail(bid.bidNtceNo, bid.bidNtceOrd || '000');
+        if (refreshed) {
+          finalBid = refreshed;
+        }
+      }
+
       setSelectedAValue(aValueItem);
-      setSelectedBid(bid);
+      setSelectedBid(finalBid);
       setIsCalculatorOpen(true);
 
       if (aValueItem) {
