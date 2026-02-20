@@ -63,6 +63,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
 
   const result = calculateOptimalBidPrice({
     basisAmount: aValueItem?.bssamt,
+    fallbackBasisAmount: bid.asignBdgtAmt,
     bgnRate: aValueItem?.rsrvtnPrceRngBgnRate,
     endRate: aValueItem?.rsrvtnPrceRngEndRate,
     aValueItem,
@@ -213,6 +214,13 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
             <CardContent className="space-y-4">
               {result.ok ? (
                 <>
+                  {/* fallback 경고 */}
+                  {result.usedFallback && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                      <p className="font-semibold text-amber-800">배정예산금액 기반 추정</p>
+                      <p className="text-amber-700">기초금액 미공개로 배정예산금액을 사용했습니다. 참고용으로만 활용하세요.</p>
+                    </div>
+                  )}
                   {/* 추천 투찰금액 */}
                   <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
                     <p className="text-sm text-blue-200 mb-1">추천 투찰금액</p>
@@ -235,7 +243,9 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                   {/* 산출 근거 */}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">기초금액</p>
+                      <p className="text-xs text-muted-foreground">
+                        {result.usedFallback ? '배정예산금액 (fallback)' : '기초금액'}
+                      </p>
                       <p className="font-bold text-gray-800">{result.basisAmount.toLocaleString()}원</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-lg">

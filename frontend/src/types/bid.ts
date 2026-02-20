@@ -58,6 +58,7 @@ export interface BidItem {
   bidClseDt: string; // 입찰마감일시
   opengDt: string; // 개찰일시
   bdgtAmt: string; // 예산금액
+  asignBdgtAmt?: string; // 배정예산금액
   presmptPrce: string; // 추정가격
   prearngPrceDcsnMthdNm: string; // 예정가격결정방법명
   sucsfbidLwltRate: string; // 낙찰하한율
@@ -103,7 +104,8 @@ export type BidCalculationResult =
       estimatedLowerBound: number;    // 추정 낙찰하한가 (원)
       estimatedPrice: number;         // 추정 예정가격 (원)
       confidenceRange: { low: number; high: number };
-      basisAmount: number;            // 기초금액
+      basisAmount: number;            // 기초금액 (또는 배정예산금액 fallback)
+      usedFallback: boolean;          // 배정예산금액을 기초금액 대신 사용했는지
       aValue: number;                 // A값
       lowerLimitRate: number;         // 낙찰하한율 (%)
       margin: string;                 // "0.1%"

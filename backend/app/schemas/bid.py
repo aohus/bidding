@@ -34,6 +34,7 @@ class BidItem(BaseModel):
     bidClseDt: Optional[str] = None # 입찰마감일시
     opengDt: Optional[str] = None # 개찰일시
     bdgtAmt: Optional[str] = None # 예산금액
+    asignBdgtAmt: Optional[str] = None # 배정예산금액
     presmptPrce: Optional[str] = None # 추정가격
     bidPrtcptLmtYn: Optional[str] = None # 입찰참가제한여부
     prearngPrceDcsnMthdNm: Optional[str] = None # 예정가격결정방법명

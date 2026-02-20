@@ -55,6 +55,7 @@ function parseA(aValueItem: BidAValueItem): number {
 
 interface CalcInput {
   basisAmount: string | number | undefined | null;
+  fallbackBasisAmount: string | number | undefined | null;
   bgnRate: string | undefined;
   endRate: string | undefined;
   aValueItem: BidAValueItem | null | undefined;
@@ -62,8 +63,11 @@ interface CalcInput {
 }
 
 export function calculateOptimalBidPrice(input: CalcInput): BidCalculationResult {
-  // Step 0: basisAmount 검증 (fallback 금지)
-  const basisAmount = safeNum(input.basisAmount);
+  // Step 0: basisAmount 검증 (없으면 배정예산금액 fallback)
+  const rawBasis = safeNum(input.basisAmount);
+  const fallbackBasis = safeNum(input.fallbackBasisAmount);
+  const usedFallback = (rawBasis == null || rawBasis <= 0) && fallbackBasis != null && fallbackBasis > 0;
+  const basisAmount = (rawBasis != null && rawBasis > 0) ? rawBasis : fallbackBasis;
   if (basisAmount == null || basisAmount <= 0) {
     return { ok: false, error: '기초금액을 확인할 수 없습니다. 공고 원문을 확인하세요.' };
   }
@@ -114,6 +118,7 @@ export function calculateOptimalBidPrice(input: CalcInput): BidCalculationResult
     estimatedPrice,
     confidenceRange: { low: lbLow, high: lbHigh },
     basisAmount,
+    usedFallback,
     aValue,
     lowerLimitRate,
     margin: '0.1%',
