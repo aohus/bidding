@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_admin_user, get_current_user
 from app.db.database import get_db
 from app.models.user import User, UserBookmark
 from app.schemas.bid import (
@@ -315,7 +315,7 @@ async def get_bid_regions(
 @router.post("/sync", response_model=DataSyncResponse)
 async def trigger_sync(
     days: int = 30,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_admin_user),
 ):
     """데이터 동기화 트리거 (백그라운드 실행)"""
     from app.services.bid_sync_scheduler import bid_sync_scheduler

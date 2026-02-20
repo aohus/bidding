@@ -16,6 +16,7 @@ class User(Base):
     business_number = Column(String(20), nullable=True, index=True)  # 사업자등록번호
     company_name = Column(String(200), nullable=True)  # 업체명
     representative_name = Column(String(100), nullable=True)  # 대표자명
+    is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
