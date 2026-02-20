@@ -64,8 +64,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const result = calculateOptimalBidPrice({
     basisAmount: aValueItem?.bssamt,
     fallbackBasisAmount: bid.asignBdgtAmt,
-    bgnRate: aValueItem?.rsrvtnPrceRngBgnRate,
-    endRate: aValueItem?.rsrvtnPrceRngEndRate,
+    priceRangeEndRate: aValueItem?.rsrvtnPrceRngEndRate,
     aValueItem,
     sucsfbidLwltRate: bid.sucsfbidLwltRate,
   });
@@ -226,7 +225,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                     <p className="text-sm text-blue-200 mb-1">추천 투찰금액</p>
                     <p className="text-2xl font-bold">{result.optimalBidPrice.toLocaleString()}원</p>
                     <div className="flex justify-center gap-6 mt-2 text-sm text-blue-200">
-                      <span>사정율 {(result.estimatedPrice / result.basisAmount * 100).toFixed(2)}%</span>
+                      <span>사정율 {result.assessmentRate}%</span>
                       <span>투찰률 {(result.optimalBidPrice / result.basisAmount * 100).toFixed(2)}%</span>
                     </div>
                     <p className="mt-1 text-xs text-blue-300">{result.note} (마진 {result.margin})</p>

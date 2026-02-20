@@ -212,16 +212,6 @@ async def _should_retry_bssamt(
         return True  # 파싱 실패 시 시도
 
 
-def _has_rate_fields(item: BidAValueItem) -> bool:
-    """예비가격범위율이 존재하는지 확인 (값이 "0"일 수 있으므로 None/빈문자열만 체크)"""
-    return (
-        item.rsrvtnPrceRngBgnRate is not None
-        and item.rsrvtnPrceRngBgnRate != ""
-        and item.rsrvtnPrceRngEndRate is not None
-        and item.rsrvtnPrceRngEndRate != ""
-    )
-
-
 async def _fetch_and_cache_a_value(
     db: AsyncSession, bidNtceNo: str, bid_type: str
 ) -> BidAValueItem | None:
@@ -265,7 +255,7 @@ async def get_bid_a_value(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """A값 조회 - DB 캐시 우선, rate 필드 없으면 재조회, 양쪽 bid_type 시도"""
+    """A값 조회 - DB 캐시 우선, bssamt 없으면 재조회, 양쪽 bid_type 시도"""
     logger.info(
         f"get_bid_a_value called by user: {current_user.username} "
         f"for bidNtceNo: {bidNtceNo} with type: {bid_type}"
@@ -275,12 +265,12 @@ async def get_bid_a_value(
         cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, bid_type
         )
-        if cached and _has_rate_fields(cached) and _has_bssamt(cached):
+        if cached and _has_bssamt(cached):
             return cached
 
-        # 2. 캐시에 rate/bssamt 없음 → A값 API 조회 (요청된 bid_type)
+        # 2. 캐시에 bssamt 없음 → A값 API 조회 (요청된 bid_type)
         result = await _fetch_and_cache_a_value(db, bidNtceNo, bid_type)
-        if result and _has_rate_fields(result):
+        if result and _has_bssamt(result):
             return result
 
         # 3. 다른 bid_type으로도 A값 시도
@@ -288,11 +278,11 @@ async def get_bid_a_value(
         alt_cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, alt_type
         )
-        if alt_cached and _has_rate_fields(alt_cached):
+        if alt_cached and _has_bssamt(alt_cached):
             return alt_cached
 
         alt_result = await _fetch_and_cache_a_value(db, bidNtceNo, alt_type)
-        if alt_result and _has_rate_fields(alt_result):
+        if alt_result and _has_bssamt(alt_result):
             return alt_result
 
         # 4. bssamt 없음 → 공고 API로 bid_notices 갱신 (asignBdgtAmt 확보)

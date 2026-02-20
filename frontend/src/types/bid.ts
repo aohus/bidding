@@ -107,6 +107,7 @@ export type BidCalculationResult =
       basisAmount: number;            // 기초금액 (또는 배정예산금액 fallback)
       usedFallback: boolean;          // 배정예산금액을 기초금액 대신 사용했는지
       aValue: number;                 // A값
+      assessmentRate: number;         // 사정율 (%)
       lowerLimitRate: number;         // 낙찰하한율 (%)
       margin: string;                 // "0.1%"
       note: string;                   // "낙찰하한가 +0.1% 전략"
