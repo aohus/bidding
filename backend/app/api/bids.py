@@ -162,6 +162,55 @@ async def _get_session():
     return AsyncSessionLocal()
 
 
+def _has_bssamt(item: BidAValueItem) -> bool:
+    """기초금액이 존재하는지 확인"""
+    return item.bssamt is not None and item.bssamt.strip() != "" and item.bssamt != "0"
+
+
+BSSAMT_RETRY_WINDOW_DAYS = 3
+BSSAMT_RETRY_COOLDOWN_HOURS = 1
+
+
+async def _should_retry_bssamt(
+    db: AsyncSession,
+    bid_ntce_no: str,
+    fetched_at: datetime | None,
+) -> bool:
+    """bssamt 미공개 시 API 재시도 여부를 판단합니다.
+
+    조건: 개찰일 3일 이내 + 마지막 조회 후 1시간 경과
+    """
+    from app.models.bid import BidNotice
+    from datetime import timezone
+
+    # 1. 쿨다운 확인 (fetched_at이 1시간 이내면 skip)
+    if fetched_at:
+        now = datetime.now(timezone.utc)
+        fetched_utc = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
+        if (now - fetched_utc) < timedelta(hours=BSSAMT_RETRY_COOLDOWN_HOURS):
+            return False
+
+    # 2. 개찰일 3일 이내인지 확인
+    result = await db.execute(
+        select(BidNotice.openg_dt).where(
+            BidNotice.bid_ntce_no == bid_ntce_no,
+        )
+    )
+    openg_dt_str = result.scalar_one_or_none()
+    if not openg_dt_str:
+        return True  # 개찰일 정보 없으면 시도
+
+    try:
+        # YYYYMMDDHHMM 또는 "YYYY-MM-DD HH:MM:SS" 포맷 처리
+        clean = openg_dt_str.replace("-", "").replace(":", "").replace(" ", "")[:12]
+        openg_dt = datetime.strptime(clean, "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        days_until_openg = (openg_dt - now).total_seconds() / 86400
+        return days_until_openg <= BSSAMT_RETRY_WINDOW_DAYS
+    except (ValueError, TypeError):
+        return True  # 파싱 실패 시 시도
+
+
 def _has_rate_fields(item: BidAValueItem) -> bool:
     """예비가격범위율이 존재하는지 확인 (값이 "0"일 수 있으므로 None/빈문자열만 체크)"""
     return (
@@ -199,17 +248,39 @@ async def get_bid_a_value(
         f"for bidNtceNo: {bidNtceNo} with type: {bid_type}"
     )
     try:
+        # 0. bssamt 미공개 캐시 쿨다운 체크
+        cached_row = await bid_data_service.get_basis_amount_row(
+            db, bidNtceNo, bid_type
+        )
+        if cached_row:
+            cached_item = BidAValueItem(**cached_row.data)
+            if not _has_bssamt(cached_item):
+                should_retry = await _should_retry_bssamt(
+                    db, bidNtceNo, cached_row.fetched_at
+                )
+                if not should_retry:
+                    logger.info(
+                        f"bssamt cooldown active for {bidNtceNo}, returning cached"
+                    )
+                    return cached_item
+
         # 1. DB 캐시 조회
         cached = await bid_data_service.get_basis_amount_from_db(
             db, bidNtceNo, bid_type
         )
-        if cached and _has_rate_fields(cached):
+        if cached and _has_rate_fields(cached) and _has_bssamt(cached):
             return cached
 
-        # 2. 캐시에 rate 없음 → API 재조회 (요청된 bid_type)
+        # 2. 캐시에 rate/bssamt 없음 → API 재조회 (요청된 bid_type)
         result = await _fetch_and_cache_a_value(db, bidNtceNo, bid_type)
         if result and _has_rate_fields(result):
             return result
+
+        # API 결과에 bssamt 없으면 fetched_at 갱신 (쿨다운 타이머 리셋)
+        if cached_row and not (result and _has_bssamt(result)):
+            await bid_data_service.touch_basis_amount_fetched_at(
+                db, bidNtceNo, bid_type
+            )
 
         # 3. 다른 bid_type으로도 시도
         alt_type = "servc" if bid_type == "cnstwk" else "cnstwk"

@@ -410,6 +410,40 @@ class BidDataService:
             return BidAValueItem(**row.data)
         return None
 
+    async def get_basis_amount_row(
+        self,
+        db: AsyncSession,
+        bid_ntce_no: str,
+        bid_type: str,
+    ) -> Optional[BidBasisAmount]:
+        """DB에서 기초금액 row를 조회합니다 (fetched_at 포함)."""
+        result = await db.execute(
+            select(BidBasisAmount).where(
+                BidBasisAmount.bid_ntce_no == bid_ntce_no,
+                BidBasisAmount.bid_type == bid_type,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def touch_basis_amount_fetched_at(
+        self,
+        db: AsyncSession,
+        bid_ntce_no: str,
+        bid_type: str,
+    ) -> None:
+        """기초금액 row의 fetched_at만 현재 시각으로 갱신합니다."""
+        from sqlalchemy import update
+
+        await db.execute(
+            update(BidBasisAmount)
+            .where(
+                BidBasisAmount.bid_ntce_no == bid_ntce_no,
+                BidBasisAmount.bid_type == bid_type,
+            )
+            .values(fetched_at=func.now())
+        )
+        await db.commit()
+
     async def has_synced_data(
         self, db: AsyncSession, start_date: str, end_date: str
     ) -> bool:
