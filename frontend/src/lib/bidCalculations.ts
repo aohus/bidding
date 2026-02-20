@@ -72,16 +72,20 @@ export function calculateOptimalBidPrice(input: CalcInput): BidCalculationResult
     return { ok: false, error: '기초금액을 확인할 수 없습니다. 공고 원문을 확인하세요.' };
   }
 
-  // Step 0: bgnRate / endRate 검증 (fallback 금지)
+  // Step 0: bgnRate / endRate 검증 (fallback 시 기본값 ±3% 적용)
   const rawBgnRate = safeNum(input.bgnRate);
   const rawEndRate = safeNum(input.endRate);
   if (rawBgnRate == null || rawEndRate == null) {
-    return { ok: false, error: '예비가격 범위를 확인할 수 없습니다. 공고 원문에서 확인 후 수동 입력하세요.' };
+    if (!usedFallback) {
+      return { ok: false, error: '예비가격 범위를 확인할 수 없습니다. 공고 원문에서 확인 후 수동 입력하세요.' };
+    }
   }
 
-  // 상대값(-3, +3) → 절대값(97, 103) 변환
-  const bgnRate = toAbsoluteRate(rawBgnRate);
-  const endRate = toAbsoluteRate(rawEndRate);
+  // 상대값(-3, +3) → 절대값(97, 103) 변환. fallback 시 기본값 ±3%
+  const DEFAULT_BGN_RATE = -3;
+  const DEFAULT_END_RATE = 3;
+  const bgnRate = toAbsoluteRate(rawBgnRate ?? DEFAULT_BGN_RATE);
+  const endRate = toAbsoluteRate(rawEndRate ?? DEFAULT_END_RATE);
   if (bgnRate <= 0 || endRate <= 0) {
     return { ok: false, error: '예비가격 범위를 확인할 수 없습니다. 공고 원문에서 확인 후 수동 입력하세요.' };
   }
