@@ -66,6 +66,7 @@ function formatDt(dt?: string) {
 }
 
 type OpengStatus = 'today' | 'upcoming' | 'waiting' | 'completed';
+const RESULT_REFRESH_WINDOW_MINUTES = 30;
 
 function getOpengStatus(b: BookmarkWithStatus, now: Date): OpengStatus {
   const openg = parseDt(b.openg_dt);
@@ -193,10 +194,11 @@ export default function Dashboard() {
   ) => {
     if (status !== 'bid_completed') return;
     const now = new Date();
+    const refreshThreshold = new Date(now.getTime() + RESULT_REFRESH_WINDOW_MINUTES * 60 * 1000);
     const waitingItems = data.filter((b) => {
       if (b.openg_completed) return false;
       const openg = parseDt(b.openg_dt);
-      return openg !== null && openg <= now;
+      return openg !== null && openg <= refreshThreshold;
     });
     if (waitingItems.length === 0) return;
 

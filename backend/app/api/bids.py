@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import List
+from datetime import datetime, timedelta, timezone
+from typing import Any, List
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -28,6 +29,52 @@ from app.services.narajangter import narajangter_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bids", tags=["Bid Notices"])
+
+RESULT_PREOPEN_WINDOW_MINUTES = 30
+RESULT_RETRY_COOLDOWN_MINUTES = 10
+RESULT_API_PAGE_SIZE = 100
+RESULT_API_MAX_PAGES = 20
+KST = ZoneInfo("Asia/Seoul")
+
+
+def _now_kst() -> datetime:
+    return datetime.now(KST)
+
+
+def _parse_bid_datetime(dt_str: str | None) -> datetime | None:
+    if not dt_str:
+        return None
+
+    clean = dt_str.replace("-", "").replace(":", "").replace(" ", "")[:12]
+    if len(clean) < 12:
+        return None
+
+    try:
+        return datetime.strptime(clean, "%Y%m%d%H%M").replace(tzinfo=KST)
+    except (ValueError, TypeError):
+        return None
+
+
+async def _get_bid_open_datetime(
+    db: AsyncSession,
+    bid_ntce_no: str,
+) -> datetime | None:
+    from app.models.bid import BidNotice
+
+    result = await db.execute(
+        select(BidNotice.openg_dt)
+        .where(BidNotice.bid_ntce_no == bid_ntce_no)
+        .order_by(BidNotice.bid_ntce_ord.desc())
+        .limit(1)
+    )
+    openg_dt_str = result.scalar_one_or_none()
+    return _parse_bid_datetime(openg_dt_str)
+
+
+def _can_attempt_bid_result_api(openg_dt: datetime | None, now: datetime) -> bool:
+    if openg_dt is None:
+        return True
+    return now >= (openg_dt - timedelta(minutes=RESULT_PREOPEN_WINDOW_MINUTES))
 
 
 @router.post("/search", response_model=BidApiResponse)
@@ -519,9 +566,15 @@ async def get_bookmarks(
             resp.openg_dt = nd["openg_dt"]
 
         # 개찰완료 여부
-        resp.openg_completed = b.bid_notice_no in results_map
+        resp.openg_completed = (
+            b.bid_notice_no in results_map and results_map[b.bid_notice_no]["total"] > 0
+        )
 
-        if b.status == "bid_completed" and b.bid_notice_no in results_map:
+        if (
+            b.status == "bid_completed"
+            and b.bid_notice_no in results_map
+            and results_map[b.bid_notice_no]["total"] > 0
+        ):
             cached = results_map[b.bid_notice_no]
             resp.total_bidders = cached["total"]
 
@@ -654,6 +707,7 @@ async def get_bid_results(
     """개찰결과 조회 (캐시 → API 폴백)"""
     from app.models.bid import BidOpeningResult
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.sql import func
 
     # 1. 캐시 확인
     result = await db.execute(
@@ -663,48 +717,79 @@ async def get_bid_results(
     )
     cached = result.scalar_one_or_none()
 
-    items_data = None
+    now = _now_kst()
+    openg_dt = await _get_bid_open_datetime(db, bidNtceNo)
+
+    items_data: list[dict[str, Any]] | None = None
     if cached:
-        # 1시간 이내 캐시 사용
-        from sqlalchemy.sql import func
-        age = datetime.now(cached.fetched_at.tzinfo) - cached.fetched_at
-        if age.total_seconds() < 3600:
-            items_data = cached.data
+        cached_data: list[dict[str, Any]] = cached.data or []
+        if cached_data:
+            # 결과 있으면 API 불필요
+            items_data = cached_data
+        else:
+            # 빈 결과: fetched_at 기준 쿨다운 확인
+            fetched_at = cached.fetched_at
+            if fetched_at is None:
+                # fetched_at 없으면 보수적으로 쿨다운 적용
+                items_data = cached_data
+            else:
+                fetched_utc = (
+                    fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
+                )
+                age = datetime.now(timezone.utc) - fetched_utc
+                if age.total_seconds() < RESULT_RETRY_COOLDOWN_MINUTES * 60:
+                    items_data = cached_data
+
+    if items_data is None and not _can_attempt_bid_result_api(openg_dt, now):
+        items_data = (cached.data or []) if cached else []
+
+    async def _upsert_result(data: list[dict[str, Any]]) -> None:
+        stmt = (
+            pg_insert(BidOpeningResult)
+            .values(bid_ntce_no=bidNtceNo, data=data)
+            .on_conflict_do_update(
+                index_elements=["bid_ntce_no"],
+                set_={"data": data, "fetched_at": func.now()},
+            )
+        )
+        await db.execute(stmt)
+        await db.commit()
 
     if items_data is None:
         # 2. API 호출
         try:
             all_items: list[BidResultItem] = []
-            page = 1
-            while True:
+            for page in range(1, RESULT_API_MAX_PAGES + 1):
                 page_items = await narajangter_service.get_bid_opening_results(
-                    bidNtceNo, pageNo=page, numOfRows=100
+                    bidNtceNo, pageNo=page, numOfRows=RESULT_API_PAGE_SIZE
                 )
                 if not page_items:
                     break
                 all_items.extend(page_items)
-                if len(page_items) < 100:
+                if len(page_items) < RESULT_API_PAGE_SIZE:
                     break
-                page += 1
+            else:
+                logger.warning(
+                    "bid_result_pagination_limit_reached",
+                    extra={"bid_ntce_no": bidNtceNo},
+                )
 
             items_data = [item.model_dump() for item in all_items]
 
             # 3. 캐시 저장
-            if items_data:
-                from sqlalchemy.sql import func
-                stmt = (
-                    pg_insert(BidOpeningResult)
-                    .values(bid_ntce_no=bidNtceNo, data=items_data)
-                    .on_conflict_do_update(
-                        index_elements=["bid_ntce_no"],
-                        set_={"data": items_data, "fetched_at": func.now()},
-                    )
-                )
-                await db.execute(stmt)
-                await db.commit()
+            await _upsert_result(items_data)
         except Exception as e:
-            logger.error(f"Failed to fetch bid results: {e}")
+            logger.error(
+                "bid_result_fetch_failed",
+                extra={"bid_ntce_no": bidNtceNo, "error": str(e)},
+                exc_info=True,
+            )
+            # 실패해도 빈 결과를 저장하여 쿨다운 적용 (API 재폭격 방지)
             items_data = []
+            try:
+                await _upsert_result(items_data)
+            except Exception:
+                await db.rollback()
 
     # 4. 결과 빌드
     results = [BidResultItem(**item) for item in items_data]
