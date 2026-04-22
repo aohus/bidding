@@ -14,9 +14,37 @@ import { BidCalculationResult, BidAValueItem } from '@/types/bid';
  * Step 7: confidenceRange — 예비가격 ±3% 범위 기반
  */
 
-const MARGIN = 1.001;
+export const MARGIN = 1.001;
 const RANGE_LOW_PCT = 97;
 const RANGE_HIGH_PCT = 103;
+
+// 공고명 기반 투찰 밴드 분류 (낙찰률 분포 군집 분석 기반)
+export type BidBand = 'service' | 'construction' | 'pest_control' | 'management';
+
+export const BAND_RATES: Record<BidBand, number[]> = {
+  service:      [87.985, 87.995, 88.005],
+  pest_control: [90.265, 90.285, 90.300],
+  construction: [90.095, 90.110, 90.130],
+  management:   [90.420, 90.438, 90.452, 90.468],
+};
+
+export const BAND_LABELS: Record<BidBand, string> = {
+  service:      '용역형',
+  pest_control: '병해충·방제형',
+  construction: '조성·식재형',
+  management:   '관리공사형',
+};
+
+export function classifyBidBand(bidNtceNm: string): BidBand {
+  if (bidNtceNm.includes('용역')) return 'service';
+  if (['병해충', '생육개선', '방제', '수간주사'].some((k) => bidNtceNm.includes(k))) return 'pest_control';
+  if (
+    ['조성공사', '조성사업', '식재공사', '신축', '보식공사', '초화식재', '수목식재', '지피식물'].some(
+      (k) => bidNtceNm.includes(k),
+    )
+  ) return 'construction';
+  return 'management';
+}
 
 export type RegionScope = 'province' | 'city';
 export type LicenseGroup = 'general' | 'landscaping';
