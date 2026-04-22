@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { AuthService } from '@/lib/auth';
 import { backendApi } from '@/lib/backendApi';
 import { Button } from '@/components/ui/button';
@@ -116,6 +116,7 @@ export default function Dashboard() {
   const [bookmarks, setBookmarks] = useState<BookmarkWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('bid_completed');
+  const loadRequestSeq = useRef(0);
 
   // 투찰완료 tab state
   const [bidFilter, setBidFilter] = useState<BidFilter>('all');
@@ -145,41 +146,77 @@ export default function Dashboard() {
   }, [navigate]);
 
   useEffect(() => {
-    loadBookmarks();
+    let cancelled = false;
+
+    const run = async () => {
+      const { data, requestId } = await loadBookmarks(activeTab);
+      if (cancelled) return;
+      await refreshWaitingResults(activeTab, data, requestId);
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      loadRequestSeq.current++;
+    };
   }, [activeTab]);
 
-  const loadBookmarks = async () => {
+  const loadBookmarks = async (
+    status: string = activeTab
+  ): Promise<{ data: BookmarkWithStatus[]; requestId: number }> => {
+    const requestId = ++loadRequestSeq.current;
     try {
       setLoading(true);
-      const data = await backendApi.getBookmarks(activeTab);
-      setBookmarks(data);
+      const data = await backendApi.getBookmarks(status);
+      if (requestId === loadRequestSeq.current) {
+        setBookmarks(data);
+      }
+      return { data, requestId };
+    } catch {
+      if (requestId === loadRequestSeq.current) {
+        toast.error('목록을 불러오는데 실패했습니다');
+      }
+      return { data: [], requestId };
+    } finally {
+      if (requestId === loadRequestSeq.current) {
+        setLoading(false);
+      }
+    }
+  };
 
-      // 투찰완료 탭: 개찰 시간 지났는데 결과 없는 항목 자동 조회
-      if (activeTab === 'bid_completed') {
-        const now = new Date();
-        const waitingItems = data.filter((b) => {
-          if (b.openg_completed) return false;
-          const openg = parseDt(b.openg_dt);
-          return openg !== null && openg <= now;
-        });
+  // 결과 미수신 항목만 백그라운드에서 갱신 (UI 로딩 블로킹 없음)
+  const refreshWaitingResults = async (
+    status: string,
+    data: BookmarkWithStatus[],
+    requestId: number
+  ) => {
+    if (status !== 'bid_completed') return;
+    const now = new Date();
+    const waitingItems = data.filter((b) => {
+      if (b.openg_completed) return false;
+      const openg = parseDt(b.openg_dt);
+      return openg !== null && openg <= now;
+    });
+    if (waitingItems.length === 0) return;
 
-        if (waitingItems.length > 0) {
-          const results = await Promise.allSettled(
-            waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no))
-          );
-          const hasNewResults = results.some(
-            (r) => r.status === 'fulfilled' && r.value.results.length > 0
-          );
-          if (hasNewResults) {
-            const freshData = await backendApi.getBookmarks(activeTab);
-            setBookmarks(freshData);
-          }
-        }
+    const results = await Promise.allSettled(
+      waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no))
+    );
+    const hasNewResults = results.some(
+      (r) => r.status === 'fulfilled' && r.value.results.length > 0
+    );
+    if (!hasNewResults || requestId !== loadRequestSeq.current) return;
+
+    try {
+      const freshData = await backendApi.getBookmarks(status);
+      if (requestId === loadRequestSeq.current) {
+        setBookmarks(freshData);
       }
     } catch {
-      toast.error('목록을 불러오는데 실패했습니다');
-    } finally {
-      setLoading(false);
+      if (requestId === loadRequestSeq.current) {
+        toast.error('개찰결과 갱신에 실패했습니다');
+      }
     }
   };
 
