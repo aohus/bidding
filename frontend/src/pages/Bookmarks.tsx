@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AuthService } from '@/lib/auth';
 import { backendApi } from '@/lib/backendApi';
 import { Button } from '@/components/ui/button';
@@ -46,83 +46,27 @@ import { toast } from 'sonner';
 import Header from '@/components/Header';
 import BidResultDialog from '@/components/BidResultDialog';
 import BidCalculator from '@/components/BidCalculator';
+import BookmarkPagination from '@/components/dashboard/BookmarkPagination';
 import { useNavigate } from 'react-router-dom';
-import { BidItem, BidAValueItem, BookmarkWithStatus } from '@/types/bid';
-
-// ── helpers ──
-
-/** "202502101500" → Date */
-function parseDt(dt?: string): Date | null {
-  if (!dt || dt.length < 12) return null;
-  const y = +dt.slice(0, 4), m = +dt.slice(4, 6) - 1, d = +dt.slice(6, 8);
-  const h = +dt.slice(8, 10), mi = +dt.slice(10, 12);
-  return new Date(y, m, d, h, mi);
-}
-
-/** "202502101500" → "02/10 15:00" */
-function formatDt(dt?: string) {
-  if (!dt || dt.length < 12) return '-';
-  return `${dt.slice(4, 6)}/${dt.slice(6, 8)} ${dt.slice(8, 10)}:${dt.slice(10, 12)}`;
-}
-
-type OpengStatus = 'today' | 'upcoming' | 'waiting' | 'completed';
-const RESULT_REFRESH_WINDOW_MINUTES = 30;
-
-function getOpengStatus(b: BookmarkWithStatus, now: Date): OpengStatus {
-  const openg = parseDt(b.openg_dt);
-  if (!openg) return b.openg_completed ? 'completed' : 'upcoming';
-
-  const isToday =
-    openg.getFullYear() === now.getFullYear() &&
-    openg.getMonth() === now.getMonth() &&
-    openg.getDate() === now.getDate();
-
-  if (b.openg_completed) return 'completed';
-  if (isToday) return 'today';
-  if (openg > now) return 'upcoming';
-  return 'waiting'; // 시간 경과했지만 결과 없음
-}
-
-const STATUS_CFG: Record<OpengStatus, { label: string; bg: string; text: string }> = {
-  today:     { label: '오늘 개찰', bg: 'bg-orange-100', text: 'text-orange-700' },
-  upcoming:  { label: '개찰 전',   bg: 'bg-blue-100',   text: 'text-blue-700' },
-  waiting:   { label: '결과 대기', bg: 'bg-yellow-100', text: 'text-yellow-700' },
-  completed: { label: '개찰완료',  bg: 'bg-green-100',  text: 'text-green-700' },
-};
-
-function formatAmt(amt?: string) {
-  if (!amt) return '-';
-  const num = parseFloat(amt);
-  if (isNaN(num)) return amt;
-  if (num >= 100000000) {
-    const eok = Math.floor(num / 100000000);
-    const man = Math.floor((num % 100000000) / 10000);
-    return man > 0 ? `${eok}억 ${man}만` : `${eok}억`;
-  }
-  if (num >= 10000) return `${Math.floor(num / 10000)}만`;
-  return num.toLocaleString();
-}
-
-const g2bUrl = (no: string, ord?: string) =>
-  `https://www.g2b.go.kr:8101/ep/invitation/publish/bidInfoDtl.do?bidno=${no}&bidseq=${ord || '000'}`;
-
-// ── component ──
-
-type BidFilter = 'all' | OpengStatus;
-type SortField = 'openg_dt' | 'bid_close_dt' | 'rank';
-type SortDir = 'asc' | 'desc';
+import { BidItem, BidAValueItem, BookmarkWithStatus, BookmarkSortField } from '@/types/bid';
+import { useBookmarkList } from '@/hooks/useBookmarkList';
+import { formatDt, formatAmt, getOpengStatus, STATUS_CFG } from '@/lib/bookmarkHelpers';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [bookmarks, setBookmarks] = useState<BookmarkWithStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('bid_completed');
-  const loadRequestSeq = useRef(0);
 
-  // 투찰완료 tab state
-  const [bidFilter, setBidFilter] = useState<BidFilter>('all');
-  const [sortField, setSortField] = useState<SortField>('openg_dt');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const {
+    activeTab,
+    setTab,
+    items,
+    meta,
+    loading,
+    state,
+    setPage,
+    setSort,
+    setOpengStatus,
+    refetch,
+  } = useBookmarkList();
 
   // Dialogs
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -147,81 +91,15 @@ export default function Dashboard() {
     return () => AuthService.setOnExpired(null);
   }, [navigate]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      const { data, requestId } = await loadBookmarks(activeTab);
-      if (cancelled) return;
-      await refreshWaitingResults(activeTab, data, requestId);
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-      loadRequestSeq.current++;
-    };
-  }, [activeTab]);
-
-  const loadBookmarks = async (
-    status: string = activeTab
-  ): Promise<{ data: BookmarkWithStatus[]; requestId: number }> => {
-    const requestId = ++loadRequestSeq.current;
-    try {
-      setLoading(true);
-      const data = await backendApi.getBookmarks(status);
-      if (requestId === loadRequestSeq.current) {
-        setBookmarks(data);
-      }
-      return { data, requestId };
-    } catch {
-      if (requestId === loadRequestSeq.current) {
-        toast.error('목록을 불러오는데 실패했습니다');
-      }
-      return { data: [], requestId };
-    } finally {
-      if (requestId === loadRequestSeq.current) {
-        setLoading(false);
-      }
+  // Per-row openg status (client-side, based on current page items)
+  const now = useMemo(() => new Date(), [items]);
+  const statusMap = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof getOpengStatus>>();
+    for (const b of items) {
+      m.set(b.bookmark_id, getOpengStatus(b, now));
     }
-  };
-
-  // 결과 미수신 항목만 백그라운드에서 갱신 (UI 로딩 블로킹 없음)
-  const refreshWaitingResults = async (
-    status: string,
-    data: BookmarkWithStatus[],
-    requestId: number
-  ) => {
-    if (status !== 'bid_completed') return;
-    const now = new Date();
-    const refreshThreshold = new Date(now.getTime() + RESULT_REFRESH_WINDOW_MINUTES * 60 * 1000);
-    const waitingItems = data.filter((b) => {
-      if (b.openg_completed) return false;
-      const openg = parseDt(b.openg_dt);
-      return openg !== null && openg <= refreshThreshold;
-    });
-    if (waitingItems.length === 0) return;
-
-    const results = await Promise.allSettled(
-      waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no, b.bid_notice_ord || '000'))
-    );
-    const hasNewResults = results.some(
-      (r) => r.status === 'fulfilled' && r.value.results.length > 0
-    );
-    if (!hasNewResults || requestId !== loadRequestSeq.current) return;
-
-    try {
-      const freshData = await backendApi.getBookmarks(status);
-      if (requestId === loadRequestSeq.current) {
-        setBookmarks(freshData);
-      }
-    } catch {
-      if (requestId === loadRequestSeq.current) {
-        toast.error('개찰결과 갱신에 실패했습니다');
-      }
-    }
-  };
+    return m;
+  }, [items, now]);
 
   // ── actions ──
 
@@ -237,7 +115,7 @@ export default function Dashboard() {
       await backendApi.updateBookmark(selectedBookmark.bookmark_id, { notes: editNotes });
       toast.success('메모가 수정되었습니다');
       setEditDialogOpen(false);
-      loadBookmarks();
+      refetch();
     } catch {
       toast.error('메모 수정에 실패했습니다');
     }
@@ -254,7 +132,7 @@ export default function Dashboard() {
       await backendApi.deleteBookmark(selectedBookmark.bookmark_id);
       toast.success('삭제되었습니다');
       setDeleteDialogOpen(false);
-      loadBookmarks();
+      refetch();
     } catch {
       toast.error('삭제에 실패했습니다');
     }
@@ -264,7 +142,7 @@ export default function Dashboard() {
     try {
       await backendApi.updateBookmark(bookmark.bookmark_id, { status: 'bid_completed' });
       toast.success('투찰완료로 변경했습니다');
-      loadBookmarks();
+      refetch();
     } catch {
       toast.error('변경에 실패했습니다');
     }
@@ -300,65 +178,13 @@ export default function Dashboard() {
     }
   };
 
-  // ── 투찰완료 tab: filter + sort ──
-
-  const now = useMemo(() => new Date(), [bookmarks]); // refresh on data change
-
-  const statusMap = useMemo(() => {
-    const m = new Map<string, OpengStatus>();
-    for (const b of bookmarks) {
-      m.set(b.bookmark_id, getOpengStatus(b, now));
-    }
-    return m;
-  }, [bookmarks, now]);
-
-  const filterCounts = useMemo(() => {
-    const counts: Record<BidFilter, number> = { all: 0, today: 0, upcoming: 0, waiting: 0, completed: 0 };
-    counts.all = bookmarks.length;
-    for (const b of bookmarks) {
-      const s = statusMap.get(b.bookmark_id)!;
-      counts[s]++;
-    }
-    return counts;
-  }, [bookmarks, statusMap]);
-
-  const filteredAndSorted = useMemo(() => {
-    let list = bookmarks;
-    if (bidFilter !== 'all') {
-      list = list.filter((b) => statusMap.get(b.bookmark_id) === bidFilter);
-    }
-    const sorted = [...list].sort((a, b) => {
-      let va: string | number = '';
-      let vb: string | number = '';
-      if (sortField === 'openg_dt') {
-        va = a.openg_dt || '';
-        vb = b.openg_dt || '';
-      } else if (sortField === 'bid_close_dt') {
-        va = a.bid_close_dt || '';
-        vb = b.bid_close_dt || '';
-      } else if (sortField === 'rank') {
-        va = a.rank ? parseInt(a.rank) : 9999;
-        vb = b.rank ? parseInt(b.rank) : 9999;
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [bookmarks, bidFilter, sortField, sortDir, statusMap]);
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
+  const handleSort = (field: BookmarkSortField) => {
+    setSort(field);
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <span className="ml-1 opacity-30 text-[10px]">↕</span>;
-    return sortDir === 'asc'
+  const SortIcon = ({ field }: { field: BookmarkSortField }) => {
+    if (state.sortField !== field) return <span className="ml-1 opacity-30 text-[10px]">↕</span>;
+    return state.sortDir === 'asc'
       ? <ChevronUp className="h-3 w-3 ml-0.5 inline" />
       : <ChevronDown className="h-3 w-3 ml-0.5 inline" />;
   };
@@ -385,7 +211,7 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setTab}>
           <TabsList className="mb-4">
             <TabsTrigger value="bid_completed" className="gap-2">
               <CheckCircle className="h-4 w-4" />
@@ -494,13 +320,13 @@ export default function Dashboard() {
         isOpen={calcOpen}
         onClose={() => {
           setCalcOpen(false);
-          loadBookmarks();
+          refetch();
         }}
       />
     </div>
   );
 
-  // ── handleSaveBidPrice (used by dialog) ──
+  // ── handleSaveBidPrice ──
   async function handleSaveBidPrice(withPrice: boolean) {
     if (!selectedBookmark) return;
     const update: { status: string; bid_price?: number } = { status: 'bid_completed' };
@@ -513,7 +339,7 @@ export default function Dashboard() {
       await backendApi.updateBookmark(selectedBookmark.bookmark_id, update);
       toast.success('투찰완료로 변경되었습니다');
       setBidPriceDialogOpen(false);
-      loadBookmarks();
+      refetch();
     } catch {
       toast.error('변경에 실패했습니다');
     }
@@ -522,68 +348,79 @@ export default function Dashboard() {
   // ── 관심 탭 테이블 ──
   function renderInterestedTable() {
     if (loading) return <Spinner />;
-    if (bookmarks.length === 0) return <EmptyState tab="interested" />;
+    if (items.length === 0 && !meta) return <EmptyState tab="interested" />;
 
     return (
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[110px] whitespace-nowrap">공고번호</TableHead>
-              <TableHead className="max-w-[280px]">공고명</TableHead>
-              <TableHead className="w-[80px] whitespace-nowrap">마감</TableHead>
-              <TableHead className="w-[80px] whitespace-nowrap">개찰</TableHead>
-              <TableHead className="w-[60px] text-center whitespace-nowrap">상태</TableHead>
-              <TableHead className="w-[180px]">메모</TableHead>
-              <TableHead className="w-[120px] text-center whitespace-nowrap">작업</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bookmarks.map((b) => {
-              const status = statusMap.get(b.bookmark_id) || 'upcoming';
-              const cfg = STATUS_CFG[status];
-              return (
-                <TableRow key={b.bookmark_id}>
-                  <TableCell className="font-mono text-xs">{b.bid_notice_no}</TableCell>
-                  <TableCell className="max-w-[280px]">
-                    <button
-                      type="button"
-                      className="text-left font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer truncate block max-w-full"
-                      onClick={() => handleOpenCalculator(b)}
-                      disabled={calcLoading}
-                      title={b.bid_notice_name}
-                    >
-                      {b.bid_notice_name}
-                    </button>
-                  </TableCell>
-                  <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.bid_close_dt)}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.openg_dt)}</TableCell>
-                  <TableCell className="text-center">
-                    <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded whitespace-nowrap ${cfg.bg} ${cfg.text}`}>
-                      {cfg.label}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-gray-600">
-                    {b.notes ? <span className="line-clamp-2">{b.notes}</span> : <span className="text-gray-400 italic">-</span>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-center gap-1">
-                      <Button variant="ghost" size="sm" title="투찰완료로 변경" onClick={() => handleChangeToBidCompleted(b)}>
-                        <ArrowRightLeft className="h-4 w-4 text-green-600" />
-                      </Button>
-                      <Button variant="ghost" size="sm" title="메모 수정" onClick={() => handleEditClick(b)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" title="삭제" onClick={() => handleDeleteClick(b)}>
-                        <Trash2 className="h-4 w-4 text-red-600" />
-                      </Button>
-                    </div>
+      <div className="space-y-3">
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[110px] whitespace-nowrap">공고번호</TableHead>
+                <TableHead className="max-w-[280px]">공고명</TableHead>
+                <TableHead className="w-[80px] whitespace-nowrap">마감</TableHead>
+                <TableHead className="w-[80px] whitespace-nowrap">개찰</TableHead>
+                <TableHead className="w-[60px] text-center whitespace-nowrap">상태</TableHead>
+                <TableHead className="w-[180px]">메모</TableHead>
+                <TableHead className="w-[120px] text-center whitespace-nowrap">작업</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                    해당하는 공고가 없습니다
                   </TableCell>
                 </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+              ) : (
+                items.map((b) => {
+                  const status = statusMap.get(b.bookmark_id) || 'upcoming';
+                  const cfg = STATUS_CFG[status];
+                  return (
+                    <TableRow key={b.bookmark_id}>
+                      <TableCell className="font-mono text-xs">{b.bid_notice_no}</TableCell>
+                      <TableCell className="max-w-[280px]">
+                        <button
+                          type="button"
+                          className="text-left font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer truncate block max-w-full"
+                          onClick={() => handleOpenCalculator(b)}
+                          disabled={calcLoading}
+                          title={b.bid_notice_name}
+                        >
+                          {b.bid_notice_name}
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.bid_close_dt)}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap text-gray-600">{formatDt(b.openg_dt)}</TableCell>
+                      <TableCell className="text-center">
+                        <span className={`inline-block px-1.5 py-0.5 text-[10px] font-medium rounded whitespace-nowrap ${cfg.bg} ${cfg.text}`}>
+                          {cfg.label}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
+                        {b.notes ? <span className="line-clamp-2">{b.notes}</span> : <span className="text-gray-400 italic">-</span>}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button variant="ghost" size="sm" title="투찰완료로 변경" onClick={() => handleChangeToBidCompleted(b)}>
+                            <ArrowRightLeft className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button variant="ghost" size="sm" title="메모 수정" onClick={() => handleEditClick(b)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" title="삭제" onClick={() => handleDeleteClick(b)}>
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {meta && <BookmarkPagination meta={meta} onPageChange={setPage} />}
       </div>
     );
   }
@@ -591,13 +428,14 @@ export default function Dashboard() {
   // ── 투찰완료 탭 테이블 ──
   function renderBidCompletedTable() {
     if (loading) return <Spinner />;
-    if (bookmarks.length === 0) return <EmptyState tab="bid_completed" />;
+    if (items.length === 0 && !meta) return <EmptyState tab="bid_completed" />;
 
-    const filters: { key: BidFilter; label: string; color: string }[] = [
+    const counts = meta?.counts ?? {};
+    const filters: { key: string; label: string; color: string }[] = [
       { key: 'all',       label: '전체',     color: 'bg-gray-100 text-gray-700 hover:bg-gray-200' },
       { key: 'today',     label: '오늘 개찰', color: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
       { key: 'upcoming',  label: '개찰 전',   color: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
-
+      { key: 'waiting',   label: '결과 대기', color: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100' },
       { key: 'completed', label: '개찰완료',  color: 'bg-green-50 text-green-700 hover:bg-green-100' },
     ];
 
@@ -610,14 +448,14 @@ export default function Dashboard() {
               key={f.key}
               type="button"
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                bidFilter === f.key
+                state.opengStatus === f.key
                   ? `${f.color} ring-2 ring-offset-1 ring-gray-300`
                   : `${f.color} opacity-60`
               }`}
-              onClick={() => setBidFilter(f.key)}
+              onClick={() => setOpengStatus(f.key as Parameters<typeof setOpengStatus>[0])}
             >
               {f.label}
-              <span className="ml-1 font-bold">{filterCounts[f.key]}</span>
+              <span className="ml-1 font-bold">{counts[f.key] ?? 0}</span>
             </button>
           ))}
         </div>
@@ -655,21 +493,20 @@ export default function Dashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAndSorted.length === 0 ? (
+              {items.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={11} className="text-center py-8 text-gray-500">
                     해당하는 공고가 없습니다
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredAndSorted.map((b) => {
+                items.map((b) => {
                   const status = statusMap.get(b.bookmark_id) || 'upcoming';
                   const cfg = STATUS_CFG[status];
                   const isHighlight = status === 'today';
                   const rankNum = b.rank ? parseInt(b.rank) : null;
                   const isNegativeRank = rankNum !== null && rankNum < 0;
 
-                  // 투찰금액 - 낙찰금액 차이 계산
                   const myAmt = b.actual_bid_price ? parseFloat(b.actual_bid_price) : null;
                   const winAmt = b.winning_bid_price ? parseFloat(b.winning_bid_price) : null;
                   const diff = myAmt !== null && winAmt !== null ? myAmt - winAmt : null;
@@ -767,6 +604,7 @@ export default function Dashboard() {
             </TableBody>
           </Table>
         </div>
+        {meta && <BookmarkPagination meta={meta} onPageChange={setPage} />}
       </div>
     );
   }

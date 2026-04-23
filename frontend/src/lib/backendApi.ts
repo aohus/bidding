@@ -1,5 +1,5 @@
 import { AuthService } from './auth';
-import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile } from '@/types/bid';
+import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus } from '@/types/bid';
 
 const API_BASE_URL = '/server';
 
@@ -241,11 +241,24 @@ class BackendApiService {
     return response.json();
   }
 
-  async getBookmarks(status?: string): Promise<BookmarkWithStatus[]> {
-    const url = status
-      ? `${API_BASE_URL}/bids/bookmarks?bookmark_status=${status}`
-      : `${API_BASE_URL}/bids/bookmarks`;
-    const response = await this.authFetch(url, {
+  async getBookmarks(params: {
+    status?: string;
+    page?: number;
+    pageSize?: number;
+    sortField?: BookmarkSortField;
+    sortDir?: BookmarkSortDir;
+    opengStatus?: BookmarkOpengStatus;
+  } = {}): Promise<PaginatedBookmarks> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/bookmarks`);
+    if (params.status) url.searchParams.set('bookmark_status', params.status);
+    if (params.page) url.searchParams.set('page', String(params.page));
+    if (params.pageSize) url.searchParams.set('page_size', String(params.pageSize));
+    if (params.sortField) url.searchParams.set('sort_field', params.sortField);
+    if (params.sortDir) url.searchParams.set('sort_dir', params.sortDir);
+    if (params.opengStatus && params.opengStatus !== 'all') {
+      url.searchParams.set('openg_status', params.opengStatus);
+    }
+    const response = await this.authFetch(url.toString(), {
       headers: this.getAuthHeaders(),
     });
 

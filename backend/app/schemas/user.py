@@ -1,7 +1,11 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, Dict, Any
+from typing import Literal, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
+
+BookmarkSortField = Literal["openg_dt", "bid_close_dt", "created_at", "rank"]
+BookmarkSortDir = Literal["asc", "desc"]
+BookmarkOpengStatus = Literal["all", "today", "upcoming", "waiting", "completed"]
 
 
 class UserCreate(BaseModel):
@@ -106,6 +110,19 @@ class BookmarkResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BookmarkListMeta(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    counts: Dict[str, int]
+
+
+class PaginatedBookmarkResponse(BaseModel):
+    items: list[BookmarkResponse]
+    meta: BookmarkListMeta
 
 
 class BusinessProfileUpdate(BaseModel):

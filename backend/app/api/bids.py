@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,15 @@ from app.schemas.bid import (
     DataSyncResponse,
     PrtcptPsblRgnItem,
 )
-from app.schemas.user import BookmarkCreate, BookmarkResponse, BookmarkUpdate
+from app.schemas.user import (
+    BookmarkCreate,
+    BookmarkOpengStatus,
+    BookmarkResponse,
+    BookmarkSortDir,
+    BookmarkSortField,
+    BookmarkUpdate,
+    PaginatedBookmarkResponse,
+)
 from app.services.bid_data_service import bid_data_service
 from app.services.narajangter import narajangter_service
 
@@ -503,138 +511,30 @@ async def create_bookmark(
     return new_bookmark
 
 
-@router.get("/bookmarks", response_model=List[BookmarkResponse])
+@router.get("/bookmarks", response_model=PaginatedBookmarkResponse)
 async def get_bookmarks(
-    bookmark_status: str | None = None,
+    bookmark_status: str = "bid_completed",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort_field: BookmarkSortField = "openg_dt",
+    sort_dir: BookmarkSortDir = "desc",
+    openg_status: BookmarkOpengStatus = "all",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get bookmarks for current user, optionally filtered by status."""
-    from app.models.bid import BidNotice, BidOpeningResult
+    """북마크 목록 페이지네이션 조회 (서버 사이드 정렬/필터)"""
+    from app.services.bookmark_service import get_paginated_bookmarks
 
-    query = select(UserBookmark).where(
-        UserBookmark.user_id == current_user.user_id
+    return await get_paginated_bookmarks(
+        db=db,
+        user=current_user,
+        status=bookmark_status,
+        page=page,
+        page_size=page_size,
+        sort_field=sort_field,
+        sort_dir=sort_dir,
+        openg_status=openg_status,
     )
-    if bookmark_status:
-        query = query.where(UserBookmark.status == bookmark_status)
-    query = query.order_by(UserBookmark.created_at.desc())
-
-    result = await db.execute(query)
-    bookmarks = result.scalars().all()
-
-    all_bid_nos = [b.bid_notice_no for b in bookmarks]
-
-    # 공고 일정 enrichment (bid_close_dt, openg_dt)
-    notice_map: dict[str, dict] = {}
-    if all_bid_nos:
-        notice_res = await db.execute(
-            select(
-                BidNotice.bid_ntce_no,
-                BidNotice.bid_close_dt,
-                BidNotice.openg_dt,
-            ).where(BidNotice.bid_ntce_no.in_(all_bid_nos))
-        )
-        for row in notice_res.all():
-            notice_map[row[0]] = {
-                "bid_close_dt": row[1],
-                "openg_dt": row[2],
-            }
-
-    # 개찰결과 enrichment — (bid_ntce_no, bid_ntce_ord) 복합 키로 조회
-    results_map: dict[str, dict] = {}
-    if all_bid_nos:
-        res = await db.execute(
-            select(BidOpeningResult).where(
-                BidOpeningResult.bid_ntce_no.in_(all_bid_nos)
-            )
-        )
-        for row in res.scalars().all():
-            key = f"{row.bid_ntce_no}-{row.bid_ntce_ord}"
-            results_map[key] = {
-                "data": row.data or [],
-                "total": len(row.data) if row.data else 0,
-            }
-
-    normalized_biz = ""
-    if current_user.business_number:
-        normalized_biz = current_user.business_number.replace("-", "")
-
-    enriched = []
-    for b in bookmarks:
-        resp = BookmarkResponse.model_validate(b)
-        result_key = f"{b.bid_notice_no}-{b.bid_notice_ord or '000'}"
-
-        # 공고 일정
-        if b.bid_notice_no in notice_map:
-            nd = notice_map[b.bid_notice_no]
-            resp.bid_close_dt = nd["bid_close_dt"]
-            resp.openg_dt = nd["openg_dt"]
-
-        # 개찰완료 여부
-        resp.openg_completed = (
-            result_key in results_map and results_map[result_key]["total"] > 0
-        )
-
-        if (
-            b.status == "bid_completed"
-            and result_key in results_map
-            and results_map[result_key]["total"] > 0
-        ):
-            cached = results_map[result_key]
-            resp.total_bidders = cached["total"]
-
-            if cached["data"]:
-                # 낙찰자(1등) 정보
-                for item in cached["data"]:
-                    if item.get("opengRank") == "1":
-                        resp.winning_bid_price = item.get("bidprcAmt")
-                        resp.winning_bid_rate = item.get("bidprcrt")
-                        break
-
-                # 내 투찰 정보 + 마이너스 등수 계산
-                if normalized_biz:
-                    # opengRank 없는 업체 = 미달
-                    # 투찰률 내림차순으로 -1, -2, ... 부여
-                    unranked = []
-                    for r in cached["data"]:
-                        rank_val = (r.get("opengRank") or "").strip()
-                        if not rank_val:
-                            try:
-                                rate = float(r.get("bidprcrt") or "0")
-                            except (ValueError, TypeError):
-                                rate = 0.0
-                            biz_r = (r.get("prcbdrBizno") or "").replace(
-                                "-", ""
-                            )
-                            unranked.append((rate, biz_r))
-                    # 투찰률 높은 순 (threshold에 가까운 순) = -1
-                    unranked.sort(key=lambda x: x[0], reverse=True)
-
-                    for item in cached["data"]:
-                        biz = (item.get("prcbdrBizno") or "").replace("-", "")
-                        if biz == normalized_biz:
-                            resp.actual_bid_price = item.get("bidprcAmt")
-                            resp.bid_rate = item.get("bidprcrt")
-
-                            rank_val = (
-                                item.get("opengRank") or ""
-                            ).strip()
-                            if rank_val:
-                                resp.rank = rank_val
-                            else:
-                                # 미달 업체 중 순서 찾기
-                                for idx, (_, ubiz) in enumerate(unranked):
-                                    if ubiz == normalized_biz:
-                                        resp.rank = str(-(idx + 1))
-                                        break
-                            break
-
-        if resp.actual_bid_price is None and b.bid_price:
-            resp.actual_bid_price = str(b.bid_price)
-
-        enriched.append(resp)
-
-    return enriched
 
 
 @router.patch("/bookmarks/{bookmark_id}", response_model=BookmarkResponse)

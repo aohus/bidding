@@ -55,7 +55,20 @@ export default function Index() {
   // 북마크 목록 로드
   const loadBookmarks = useCallback(async () => {
     try {
-      const bookmarks = await backendApi.getBookmarks();
+      const fetchStatus = async (status: 'interested' | 'bid_completed') => {
+        const first = await backendApi.getBookmarks({ status, pageSize: 100 });
+        const rest = await Promise.all(
+          Array.from({ length: Math.max(0, first.meta.total_pages - 1) }, (_, idx) =>
+            backendApi.getBookmarks({ status, page: idx + 2, pageSize: 100 })
+          )
+        );
+        return [first, ...rest].flatMap(page => page.items);
+      };
+
+      const bookmarks = (await Promise.all([
+        fetchStatus('interested'),
+        fetchStatus('bid_completed'),
+      ])).flat();
       const map = new Map<string, BookmarkInfo>();
       for (const b of bookmarks) {
         map.set(b.bid_notice_no, { status: b.status, bookmarkId: b.bookmark_id });

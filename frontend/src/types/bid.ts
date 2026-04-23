@@ -210,6 +210,23 @@ export interface BidResultResponse {
   total_bidders: number;
 }
 
+export type BookmarkSortField = 'openg_dt' | 'bid_close_dt' | 'created_at' | 'rank';
+export type BookmarkSortDir = 'asc' | 'desc';
+export type BookmarkOpengStatus = 'all' | 'today' | 'upcoming' | 'waiting' | 'completed';
+
+export interface BookmarkListMeta {
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  counts: Record<string, number>;
+}
+
+export interface PaginatedBookmarks {
+  items: BookmarkWithStatus[];
+  meta: BookmarkListMeta;
+}
+
 export interface BusinessProfile {
   business_number: string | null;
   company_name: string | null;
