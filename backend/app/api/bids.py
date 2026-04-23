@@ -88,6 +88,41 @@ def _can_attempt_bid_result_api(openg_dt: datetime | None, now: datetime) -> boo
     return now >= (openg_dt - timedelta(minutes=RESULT_PREOPEN_WINDOW_MINUTES))
 
 
+async def _safe_upsert_bookmark_dashboard_item(
+    db: AsyncSession,
+    bookmark_id: Any,
+) -> None:
+    from app.services.bookmark_service import upsert_bookmark_dashboard_item
+
+    try:
+        async with db.begin_nested():
+            await upsert_bookmark_dashboard_item(db, bookmark_id)
+    except Exception:
+        logger.warning(
+            "bookmark_dashboard_upsert_failed",
+            extra={"bookmark_id": str(bookmark_id)},
+            exc_info=True,
+        )
+
+
+async def _safe_refresh_dashboard_for_notice(
+    db: AsyncSession,
+    bid_notice_no: str,
+    bid_notice_ord: str,
+) -> None:
+    from app.services.bookmark_service import refresh_dashboard_for_notice
+
+    try:
+        async with db.begin_nested():
+            await refresh_dashboard_for_notice(db, bid_notice_no, bid_notice_ord)
+    except Exception:
+        logger.warning(
+            "bookmark_dashboard_refresh_for_notice_failed",
+            extra={"bid_notice_no": bid_notice_no, "bid_notice_ord": bid_notice_ord},
+            exc_info=True,
+        )
+
+
 @router.post("/search", response_model=BidApiResponse)
 async def search_bids(
     search_params: BidSearchParams,
@@ -505,6 +540,9 @@ async def create_bookmark(
     )
 
     db.add(new_bookmark)
+    await db.flush()
+    await db.refresh(new_bookmark)
+    await _safe_upsert_bookmark_dashboard_item(db, new_bookmark.bookmark_id)
     await db.commit()
     await db.refresh(new_bookmark)
 
@@ -566,6 +604,9 @@ async def update_bookmark(
     if update_data.notes is not None:
         bookmark.notes = update_data.notes
 
+    await db.flush()
+    await db.refresh(bookmark)
+    await _safe_upsert_bookmark_dashboard_item(db, bookmark.bookmark_id)
     await db.commit()
     await db.refresh(bookmark)
     return bookmark
@@ -668,6 +709,7 @@ async def get_bid_results(
             )
         )
         await db.execute(stmt)
+        await _safe_refresh_dashboard_for_notice(db, bidNtceNo, bidNtceOrd)
         await db.commit()
 
     if items_data is None:

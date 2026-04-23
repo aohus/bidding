@@ -308,6 +308,20 @@ class BidDataService:
             )
             await db.execute(stmt)
             saved += 1
+        if saved:
+            try:
+                from app.services.bookmark_service import refresh_dashboard_for_notices
+
+                async with db.begin_nested():
+                    await refresh_dashboard_for_notices(
+                        db,
+                        ((item.bidNtceNo, item.bidNtceOrd) for item in items),
+                    )
+            except Exception:
+                logger.warning(
+                    "bookmark_dashboard_refresh_after_bid_notice_save_failed",
+                    exc_info=True,
+                )
         await db.commit()
         logger.info(f"Saved {saved} bid notices to DB")
         return saved
