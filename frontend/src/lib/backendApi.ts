@@ -289,8 +289,10 @@ class BackendApiService {
 
   // --- Bid Results API ---
 
-  async getBidResults(bidNtceNo: string): Promise<BidResultResponse> {
-    const response = await this.authFetch(`${API_BASE_URL}/bids/${bidNtceNo}/results`, {
+  async getBidResults(bidNtceNo: string, bidNtceOrd: string = '000'): Promise<BidResultResponse> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/${bidNtceNo}/results`);
+    url.searchParams.append('bidNtceOrd', bidNtceOrd);
+    const response = await this.authFetch(url.toString(), {
       headers: this.getAuthHeaders(),
     });
 

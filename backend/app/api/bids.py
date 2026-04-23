@@ -32,6 +32,7 @@ router = APIRouter(prefix="/bids", tags=["Bid Notices"])
 
 RESULT_PREOPEN_WINDOW_MINUTES = 30
 RESULT_RETRY_COOLDOWN_MINUTES = 10
+RESULT_ERROR_COOLDOWN_MINUTES = 3
 RESULT_API_PAGE_SIZE = 100
 RESULT_API_MAX_PAGES = 20
 KST = ZoneInfo("Asia/Seoul")
@@ -58,14 +59,16 @@ def _parse_bid_datetime(dt_str: str | None) -> datetime | None:
 async def _get_bid_open_datetime(
     db: AsyncSession,
     bid_ntce_no: str,
+    bid_ntce_ord: str = "000",
 ) -> datetime | None:
     from app.models.bid import BidNotice
 
     result = await db.execute(
         select(BidNotice.openg_dt)
-        .where(BidNotice.bid_ntce_no == bid_ntce_no)
-        .order_by(BidNotice.bid_ntce_ord.desc())
-        .limit(1)
+        .where(
+            BidNotice.bid_ntce_no == bid_ntce_no,
+            BidNotice.bid_ntce_ord == bid_ntce_ord,
+        )
     )
     openg_dt_str = result.scalar_one_or_none()
     return _parse_bid_datetime(openg_dt_str)
@@ -537,7 +540,7 @@ async def get_bookmarks(
                 "openg_dt": row[2],
             }
 
-    # 개찰결과 enrichment
+    # 개찰결과 enrichment — (bid_ntce_no, bid_ntce_ord) 복합 키로 조회
     results_map: dict[str, dict] = {}
     if all_bid_nos:
         res = await db.execute(
@@ -546,8 +549,9 @@ async def get_bookmarks(
             )
         )
         for row in res.scalars().all():
-            results_map[row.bid_ntce_no] = {
-                "data": row.data,
+            key = f"{row.bid_ntce_no}-{row.bid_ntce_ord}"
+            results_map[key] = {
+                "data": row.data or [],
                 "total": len(row.data) if row.data else 0,
             }
 
@@ -558,6 +562,7 @@ async def get_bookmarks(
     enriched = []
     for b in bookmarks:
         resp = BookmarkResponse.model_validate(b)
+        result_key = f"{b.bid_notice_no}-{b.bid_notice_ord or '000'}"
 
         # 공고 일정
         if b.bid_notice_no in notice_map:
@@ -567,15 +572,15 @@ async def get_bookmarks(
 
         # 개찰완료 여부
         resp.openg_completed = (
-            b.bid_notice_no in results_map and results_map[b.bid_notice_no]["total"] > 0
+            result_key in results_map and results_map[result_key]["total"] > 0
         )
 
         if (
             b.status == "bid_completed"
-            and b.bid_notice_no in results_map
-            and results_map[b.bid_notice_no]["total"] > 0
+            and result_key in results_map
+            and results_map[result_key]["total"] > 0
         ):
-            cached = results_map[b.bid_notice_no]
+            cached = results_map[result_key]
             resp.total_bidders = cached["total"]
 
             if cached["data"]:
@@ -701,10 +706,16 @@ async def delete_bookmark(
 @router.get("/{bidNtceNo}/results", response_model=BidResultResponse)
 async def get_bid_results(
     bidNtceNo: str,
+    bidNtceOrd: str = "000",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """개찰결과 조회 (캐시 → API 폴백)"""
+    """개찰결과 조회 (캐시 → API 폴백)
+
+    data=NULL  → 에러 쿨다운 (RESULT_ERROR_COOLDOWN_MINUTES)
+    data=[]    → 빈 결과 쿨다운 (RESULT_RETRY_COOLDOWN_MINUTES)
+    data=[...] → 유효한 캐시, API 호출 없이 반환
+    """
     from app.models.bid import BidOpeningResult
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from sqlalchemy.sql import func
@@ -712,43 +723,47 @@ async def get_bid_results(
     # 1. 캐시 확인
     result = await db.execute(
         select(BidOpeningResult).where(
-            BidOpeningResult.bid_ntce_no == bidNtceNo
+            BidOpeningResult.bid_ntce_no == bidNtceNo,
+            BidOpeningResult.bid_ntce_ord == bidNtceOrd,
         )
     )
     cached = result.scalar_one_or_none()
 
     now = _now_kst()
-    openg_dt = await _get_bid_open_datetime(db, bidNtceNo)
+    openg_dt = await _get_bid_open_datetime(db, bidNtceNo, bidNtceOrd)
+
+    def _age_seconds(fetched_at: datetime | None) -> float:
+        if fetched_at is None:
+            return 0.0
+        utc = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - utc).total_seconds()
 
     items_data: list[dict[str, Any]] | None = None
     if cached:
-        cached_data: list[dict[str, Any]] = cached.data or []
-        if cached_data:
-            # 결과 있으면 API 불필요
-            items_data = cached_data
+        if cached.data:
+            # 유효한 결과 → 캐시 반환
+            items_data = cached.data
+        elif cached.data is None:
+            # 에러 상태 → 3분 쿨다운
+            if _age_seconds(cached.fetched_at) < RESULT_ERROR_COOLDOWN_MINUTES * 60:
+                items_data = []
         else:
-            # 빈 결과: fetched_at 기준 쿨다운 확인
-            fetched_at = cached.fetched_at
-            if fetched_at is None:
-                # fetched_at 없으면 보수적으로 쿨다운 적용
-                items_data = cached_data
-            else:
-                fetched_utc = (
-                    fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=timezone.utc)
-                )
-                age = datetime.now(timezone.utc) - fetched_utc
-                if age.total_seconds() < RESULT_RETRY_COOLDOWN_MINUTES * 60:
-                    items_data = cached_data
+            # 빈 결과([]) → 10분 쿨다운
+            if (
+                cached.fetched_at is None
+                or _age_seconds(cached.fetched_at) < RESULT_RETRY_COOLDOWN_MINUTES * 60
+            ):
+                items_data = []
 
     if items_data is None and not _can_attempt_bid_result_api(openg_dt, now):
         items_data = (cached.data or []) if cached else []
 
-    async def _upsert_result(data: list[dict[str, Any]]) -> None:
+    async def _upsert_result(data: list[dict[str, Any]] | None) -> None:
         stmt = (
             pg_insert(BidOpeningResult)
-            .values(bid_ntce_no=bidNtceNo, data=data)
+            .values(bid_ntce_no=bidNtceNo, bid_ntce_ord=bidNtceOrd, data=data)
             .on_conflict_do_update(
-                index_elements=["bid_ntce_no"],
+                index_elements=["bid_ntce_no", "bid_ntce_ord"],
                 set_={"data": data, "fetched_at": func.now()},
             )
         )
@@ -776,7 +791,7 @@ async def get_bid_results(
 
             items_data = [item.model_dump() for item in all_items]
 
-            # 3. 캐시 저장
+            # 3. 캐시 저장 (성공: data=[] 또는 data=[...])
             await _upsert_result(items_data)
         except Exception as e:
             logger.error(
@@ -784,10 +799,10 @@ async def get_bid_results(
                 extra={"bid_ntce_no": bidNtceNo, "error": str(e)},
                 exc_info=True,
             )
-            # 실패해도 빈 결과를 저장하여 쿨다운 적용 (API 재폭격 방지)
+            # 실패: data=NULL 저장 → 3분 에러 쿨다운 (10분 빈 결과 쿨다운과 분리)
             items_data = []
             try:
-                await _upsert_result(items_data)
+                await _upsert_result(None)
             except Exception:
                 await db.rollback()
 

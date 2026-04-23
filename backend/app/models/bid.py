@@ -62,11 +62,19 @@ class UserLocation(Base):
 
 
 class BidOpeningResult(Base):
-    """개찰결과 데이터 캐시"""
+    """개찰결과 데이터 캐시
+    data=NULL  → 마지막 API 호출 실패 (에러 쿨다운 3분)
+    data=[]    → API 성공 but 결과 없음 (빈 결과 쿨다운 10분)
+    data=[...] → 유효한 결과 (캐시 반환)
+    """
     __tablename__ = "bid_opening_results"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord"),
+    )
 
-    bid_ntce_no = Column(String(50), primary_key=True)
-    data = Column(JSONB, nullable=False)  # 전체 개찰결과 리스트
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    data = Column(JSONB, nullable=True)
     fetched_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 
 interface BidResultDialogProps {
   bidNtceNo: string | null;
+  bidNtceOrd?: string;
   bidNoticeName?: string;
   isOpen: boolean;
   onClose: () => void;
@@ -23,6 +24,7 @@ interface BidResultDialogProps {
 
 export default function BidResultDialog({
   bidNtceNo,
+  bidNtceOrd = '000',
   bidNoticeName,
   isOpen,
   onClose,
@@ -32,15 +34,15 @@ export default function BidResultDialog({
 
   useEffect(() => {
     if (isOpen && bidNtceNo) {
-      loadResults(bidNtceNo);
+      loadResults(bidNtceNo, bidNtceOrd);
     }
-  }, [isOpen, bidNtceNo]);
+  }, [isOpen, bidNtceNo, bidNtceOrd]);
 
-  const loadResults = async (ntceNo: string) => {
+  const loadResults = async (ntceNo: string, ntceOrd: string) => {
     try {
       setLoading(true);
       setData(null);
-      const result = await backendApi.getBidResults(ntceNo);
+      const result = await backendApi.getBidResults(ntceNo, ntceOrd);
       setData(result);
     } catch (error) {
       toast.error('개찰결과 조회에 실패했습니다');

@@ -133,6 +133,7 @@ export default function Dashboard() {
   const [bidPriceInput, setBidPriceInput] = useState('');
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [resultBidNtceNo, setResultBidNtceNo] = useState<string | null>(null);
+  const [resultBidNtceOrd, setResultBidNtceOrd] = useState<string>('000');
   const [resultBidName, setResultBidName] = useState<string>('');
 
   // BidCalculator popup state
@@ -203,7 +204,7 @@ export default function Dashboard() {
     if (waitingItems.length === 0) return;
 
     const results = await Promise.allSettled(
-      waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no))
+      waitingItems.map((b) => backendApi.getBidResults(b.bid_notice_no, b.bid_notice_ord || '000'))
     );
     const hasNewResults = results.some(
       (r) => r.status === 'fulfilled' && r.value.results.length > 0
@@ -271,6 +272,7 @@ export default function Dashboard() {
 
   const handleViewResults = (bookmark: BookmarkWithStatus) => {
     setResultBidNtceNo(bookmark.bid_notice_no);
+    setResultBidNtceOrd(bookmark.bid_notice_ord || '000');
     setResultBidName(bookmark.bid_notice_name);
     setResultDialogOpen(true);
   };
@@ -479,6 +481,7 @@ export default function Dashboard() {
       {/* Result Dialog */}
       <BidResultDialog
         bidNtceNo={resultBidNtceNo}
+        bidNtceOrd={resultBidNtceOrd}
         bidNoticeName={resultBidName}
         isOpen={resultDialogOpen}
         onClose={() => setResultDialogOpen(false)}
