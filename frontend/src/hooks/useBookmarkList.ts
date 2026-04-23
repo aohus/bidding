@@ -13,8 +13,13 @@ import {
 
 const PAGE_SIZE = 20;
 const RESULT_REFRESH_WINDOW_MINUTES = 30;
+const RESULT_REFRESH_CONCURRENCY = 3;
+const VALID_SORT_FIELDS: BookmarkSortField[] = ['openg_dt', 'bid_close_dt', 'created_at', 'rank'];
+const VALID_SORT_DIRS: BookmarkSortDir[] = ['asc', 'desc'];
+const VALID_OPENG_STATUSES: BookmarkOpengStatus[] = ['all', 'today', 'upcoming', 'waiting', 'completed'];
 
 type TabKey = 'bid_completed' | 'interested';
+const VALID_TABS: TabKey[] = ['bid_completed', 'interested'];
 
 interface TabState {
   page: number;
@@ -38,11 +43,15 @@ const DEFAULT_STATE: TabState = {
 
 function readFromParams(params: URLSearchParams, tab: TabKey): TabState {
   if (params.get('tab') !== tab) return { ...DEFAULT_STATE };
+  const rawSort = params.get('sort') as BookmarkSortField | null;
+  const rawDir = params.get('dir') as BookmarkSortDir | null;
+  const rawFilter = params.get('filter') as BookmarkOpengStatus | null;
+
   return {
     page: Math.max(1, Number(params.get('page')) || 1),
-    sortField: (params.get('sort') as BookmarkSortField) || 'openg_dt',
-    sortDir: (params.get('dir') as BookmarkSortDir) || 'desc',
-    opengStatus: (params.get('filter') as BookmarkOpengStatus) || 'all',
+    sortField: rawSort && VALID_SORT_FIELDS.includes(rawSort) ? rawSort : 'openg_dt',
+    sortDir: rawDir && VALID_SORT_DIRS.includes(rawDir) ? rawDir : 'desc',
+    opengStatus: rawFilter && VALID_OPENG_STATUSES.includes(rawFilter) ? rawFilter : 'all',
   };
 }
 
@@ -53,7 +62,8 @@ export function useBookmarkList() {
   const loadSeq = useRef(0);
   const isFirstRender = useRef(true);
 
-  const activeTab = (searchParams.get('tab') || 'bid_completed') as TabKey;
+  const rawTab = searchParams.get('tab') as TabKey | null;
+  const activeTab: TabKey = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'bid_completed';
 
   const [tabStates, setTabStates] = useState<Record<TabKey, TabState>>({
     bid_completed: readFromParams(searchParams, 'bid_completed'),
@@ -137,9 +147,16 @@ export function useBookmarkList() {
     });
     if (!waiting.length) return;
 
-    const results = await Promise.allSettled(
-      waiting.map(b => backendApi.getBidResults(b.bid_notice_no, b.bid_notice_ord || '000'))
-    );
+    const results: PromiseSettledResult<Awaited<ReturnType<typeof backendApi.getBidResults>>>[] = [];
+    for (let i = 0; i < waiting.length; i += RESULT_REFRESH_CONCURRENCY) {
+      const batch = waiting.slice(i, i + RESULT_REFRESH_CONCURRENCY);
+      results.push(
+        ...(await Promise.allSettled(
+          batch.map(b => backendApi.getBidResults(b.bid_notice_no, b.bid_notice_ord || '000'))
+        ))
+      );
+      if (seq !== loadSeq.current) return;
+    }
     const hasNew = results.some(r => r.status === 'fulfilled' && r.value.results.length > 0);
     if (!hasNew || seq !== loadSeq.current) return;
 

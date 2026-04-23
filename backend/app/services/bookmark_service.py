@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, case, func, nulls_last, or_, select
+from sqlalchemy import and_, case, func, nulls_last, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bid import BidNotice, BidOpeningResult
@@ -20,6 +20,7 @@ from app.schemas.user import (
 
 logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
+OPENING_RESULTS_TABLE = BidOpeningResult.__tablename__
 
 
 def _now_kst_strs() -> tuple[str, str]:
@@ -147,8 +148,55 @@ def _sort_col(field: str) -> Any:
         "openg_dt": BidNotice.openg_dt,
         "bid_close_dt": BidNotice.bid_close_dt,
         "created_at": UserBookmark.created_at,
-        "rank": UserBookmark.created_at,  # rank is sorted in-memory post-enrichment
+        "rank": UserBookmark.created_at,
     }.get(field, UserBookmark.created_at)
+
+
+def _rank_order_sql(sort_dir: str) -> Any:
+    data_ref = f"{OPENING_RESULTS_TABLE}.data"
+    sql = f"""
+        CASE
+            WHEN :normalized_biz = '' OR {data_ref} IS NULL THEN NULL
+            ELSE (
+                WITH mine AS (
+                    SELECT
+                        CASE
+                            WHEN NULLIF(BTRIM(e.value->>'opengRank'), '') ~ '^-?[0-9]+$'
+                                THEN NULLIF(BTRIM(e.value->>'opengRank'), '')::integer
+                            ELSE NULL
+                        END AS rank_value,
+                        CASE
+                            WHEN NULLIF(e.value->>'bidprcrt', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                                THEN NULLIF(e.value->>'bidprcrt', '')::numeric
+                            ELSE NULL
+                        END AS bid_rate
+                    FROM jsonb_array_elements({data_ref}) WITH ORDINALITY AS e(value, ord)
+                    WHERE REPLACE(COALESCE(e.value->>'prcbdrBizno', ''), '-', '') = :normalized_biz
+                    ORDER BY e.ord
+                    LIMIT 1
+                )
+                SELECT
+                    CASE
+                        WHEN mine.rank_value IS NOT NULL THEN mine.rank_value
+                        WHEN mine.bid_rate IS NOT NULL THEN -(
+                            SELECT COUNT(*) + 1
+                            FROM jsonb_array_elements({data_ref}) AS u(value)
+                            WHERE NULLIF(BTRIM(COALESCE(u.value->>'opengRank', '')), '') IS NULL
+                              AND CASE
+                                    WHEN NULLIF(u.value->>'bidprcrt', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                                        THEN NULLIF(u.value->>'bidprcrt', '')::numeric
+                                    ELSE NULL
+                                  END > mine.bid_rate
+                        )::integer
+                        ELSE NULL
+                    END
+                FROM mine
+            )
+        END
+    """
+    if sort_dir == "asc":
+        return text(sql + " ASC NULLS LAST")
+    return text(sql + " DESC NULLS LAST")
 
 
 def _enrich_one(
@@ -238,18 +286,20 @@ async def get_paginated_bookmarks(
         if filt is not None:
             stmt = stmt.where(filt)
 
-    # Filtered total for pagination
-    total_stmt = select(func.count()).select_from(stmt.subquery())
-    filtered_total: int = (await db.execute(total_stmt)).scalar_one()
+    if status == "bid_completed" and openg_status and openg_status != "all":
+        filtered_total = counts.get(openg_status, 0)
+    else:
+        filtered_total = counts.get("all", 0)
     total_pages = max(1, math.ceil(filtered_total / page_size))
     page = min(page, total_pages)
 
     if sort_field == "rank":
-        bookmarks = (await db.execute(stmt.order_by(UserBookmark.created_at.desc()))).scalars().all()
-        enriched = await _enrich_bookmarks(db, bookmarks, user)
-        enriched.sort(key=_rank_key, reverse=(sort_dir == "desc"))
-        start = (page - 1) * page_size
-        page_items = enriched[start : start + page_size]
+        normalized_biz = (user.business_number or "").replace("-", "")
+        stmt = stmt.params(normalized_biz=normalized_biz)
+        stmt = stmt.order_by(_rank_order_sql(sort_dir), UserBookmark.created_at.desc())
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+        bookmarks = (await db.execute(stmt)).scalars().all()
+        page_items = await _enrich_bookmarks(db, bookmarks, user)
     else:
         col = _sort_col(sort_field)
         order = nulls_last(col.asc() if sort_dir == "asc" else col.desc())
@@ -268,15 +318,6 @@ async def get_paginated_bookmarks(
             counts=counts,
         ),
     )
-
-
-def _rank_key(r: BookmarkResponse) -> int:
-    if r.rank is None:
-        return 9999
-    try:
-        return int(r.rank)
-    except ValueError:
-        return 9999
 
 
 async def _enrich_bookmarks(

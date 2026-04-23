@@ -1,7 +1,7 @@
 import uuid
 
 from app.db.database import Base
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 
@@ -49,9 +49,13 @@ class SavedSearch(Base):
 
 class UserBookmark(Base):
     __tablename__ = "user_bookmarks"
+    __table_args__ = (
+        Index("ix_user_bookmarks_user_status_created", "user_id", "status", "created_at"),
+        Index("ix_user_bookmarks_notice_ord", "bid_notice_no", "bid_notice_ord"),
+    )
     
     bookmark_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
     bid_notice_no = Column(String(50), nullable=False, index=True)
     bid_notice_name = Column(String(500), nullable=False)
     bid_notice_ord = Column(String(10), nullable=True, default="000")
