@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BidAValueItem, BidItem } from '@/types/bid';
-import { calculateOptimalBidPrice, MARGIN as BID_MARGIN, classifyBidBand, BAND_RATES, BAND_LABELS, BidBand } from '@/lib/bidCalculations';
+import { calculateOptimalBidPrice } from '@/lib/bidCalculations';
 import { downloadDocument } from '@/lib/api';
 import { backendApi } from '@/lib/backendApi';
 import { Download, FileText, Calculator, ExternalLink, Info, Star, CheckCircle } from 'lucide-react';
@@ -22,8 +22,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const [showBidPriceInput, setShowBidPriceInput] = useState(false);
   const [bidPriceInput, setBidPriceInput] = useState('');
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
-  const [recommendedBidRate, setRecommendedBidRate] = useState<number | null>(null);
-  const [detectedBand, setDetectedBand] = useState<BidBand | null>(null);
 
   const handleSaveBookmark = async (status: 'interested' | 'bid_completed', bidPrice?: number) => {
     if (!bid) return;
@@ -61,16 +59,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     handleSaveBookmark('bid_completed');
   };
 
-  useEffect(() => {
-    if (!isOpen || !bid) return;
-
-    const band = classifyBidBand(bid.bidNtceNm);
-    const rates = BAND_RATES[band];
-    const rate = rates[Math.floor(Math.random() * rates.length)];
-    setDetectedBand(band);
-    setRecommendedBidRate(rate);
-  }, [bid, isOpen]);
-
   if (!bid) return null;
 
   const result = calculateOptimalBidPrice({
@@ -78,8 +66,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     fallbackBasisAmount: bid.asignBdgtAmt,
     aValueItem,
     sucsfbidLwltRate: bid.sucsfbidLwltRate,
-    prtcptPsblRgnNms: bid.prtcptPsblRgnNms,
-    permsnIndstrytyListNms: bid.permsnIndstrytyListNms,
   });
 
   const formatPrice = (price: string | undefined) => {
@@ -87,24 +73,9 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     return num.toLocaleString();
   };
 
-  const displayedBidRate =
-    recommendedBidRate ?? (result.ok ? Number(((result.optimalBidPrice / result.basisAmount) * 100).toFixed(3)) : null);
-  const displayedBidPrice =
-    result.ok && displayedBidRate !== null
-      ? Math.round(result.basisAmount * displayedBidRate / 100)
-      : null;
-  const displayedLowerBound =
-    result.ok && displayedBidPrice !== null
-      ? Math.round(displayedBidPrice / BID_MARGIN)
-      : null;
-  const displayedEstimatedPrice =
-    result.ok && displayedLowerBound !== null
-      ? Math.round(((displayedLowerBound - result.aValue) / (result.lowerLimitRate / 100)) + result.aValue)
-      : null;
-  const displayedAssessmentRate =
-    result.ok && displayedEstimatedPrice !== null
-      ? Number(((displayedEstimatedPrice / result.basisAmount) * 100).toFixed(3))
-      : null;
+  const displayedBidRate = result.ok
+    ? Number(((result.optimalBidPrice / result.basisAmount) * 100).toFixed(3))
+    : null;
 
   const documents = [
     { url: bid.ntceSpecDocUrl1, name: bid.ntceSpecFileNm1 || '공고규격서 1' },
@@ -255,15 +226,12 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                   {/* 추천 투찰금액 */}
                   <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
                     <p className="text-sm text-blue-200 mb-1">추천 투찰금액</p>
-                    <p className="text-2xl font-bold">{displayedBidPrice?.toLocaleString() ?? result.optimalBidPrice.toLocaleString()}원</p>
+                    <p className="text-2xl font-bold">{result.optimalBidPrice.toLocaleString()}원</p>
                     <div className="flex justify-center gap-6 mt-2 text-sm text-blue-200">
-                      <span>사정율 {displayedAssessmentRate?.toFixed(3) ?? result.assessmentRate}%</span>
-                      <span>투찰률 {displayedBidRate?.toFixed(3) ?? ((result.optimalBidPrice / result.basisAmount * 100).toFixed(3))}%</span>
+                      <span>투찰률 {displayedBidRate?.toFixed(3)}%</span>
                     </div>
                     <p className="mt-1 text-xs text-blue-300">
-                      {recommendedBidRate !== null && detectedBand !== null
-                        ? `${BAND_LABELS[detectedBand]} 기준 역산`
-                        : `${result.note} (마진 ${result.margin})`}
+                      {`${result.note} (마진 ${result.margin})`}
                     </p>
                   </div>
 
@@ -284,12 +252,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                       <p className="font-bold text-gray-800">{result.basisAmount.toLocaleString()}원</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">추정 예정가격</p>
-                      <p className="font-bold text-gray-800">
-                        {(displayedEstimatedPrice ?? result.estimatedPrice).toLocaleString()}원
-                      </p>
-                    </div>
-                    <div className="p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">낙찰하한율</p>
                       <p className="font-bold text-gray-800">{result.lowerLimitRate}%</p>
                     </div>
@@ -300,7 +262,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                     <div className="col-span-2 p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">추정 낙찰하한가</p>
                       <p className="font-bold text-gray-800">
-                        {(displayedLowerBound ?? result.estimatedLowerBound).toLocaleString()}원
+                        {result.estimatedLowerBound.toLocaleString()}원
                       </p>
                     </div>
                   </div>

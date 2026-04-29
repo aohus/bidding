@@ -102,15 +102,13 @@ export type BidCalculationResult =
       ok: true;
       optimalBidPrice: number;        // 추천 투찰금액 (원)
       estimatedLowerBound: number;    // 추정 낙찰하한가 (원)
-      estimatedPrice: number;         // 추정 예정가격 (원)
       confidenceRange: { low: number; high: number };
       basisAmount: number;            // 기초금액 (또는 배정예산금액 fallback)
       usedFallback: boolean;          // 배정예산금액을 기초금액 대신 사용했는지
       aValue: number;                 // A값
-      assessmentRate: number;         // 사정율 (%)
       lowerLimitRate: number;         // 낙찰하한율 (%)
-      margin: string;                 // "0.1%"
-      note: string;                   // "낙찰하한가 +0.1% 전략"
+      margin: string;                 // "+1,000원"
+      note: string;                   // "낙찰하한가 + 1,000원 전략"
     }
   | {
       ok: false;
