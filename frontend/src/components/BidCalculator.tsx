@@ -40,8 +40,9 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     const presmptPrce = Number(bid.presmptPrce);
     backendApi
       .getEstimateRate({
-        region: bid.cnstrtsiteRgnNm,
+        region: bid.prtcptPsblRgnNms,
         industry: bid.permsnIndstrytyListNms,
+        industryField: bid.indstrytyMfrcFldListNms,
         contractMethod: bid.cntrctCnclsMthdNm,
         presmptPrce: Number.isFinite(presmptPrce) && presmptPrce > 0 ? presmptPrce : undefined,
       })
@@ -441,8 +442,9 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
         isOpen={distributionOpen}
         onClose={() => setDistributionOpen(false)}
         query={{
-          region: bid.cnstrtsiteRgnNm,
+          region: bid.prtcptPsblRgnNms,
           industry: bid.permsnIndstrytyListNms,
+          industryField: bid.indstrytyMfrcFldListNms,
           contractMethod: bid.cntrctCnclsMthdNm,
           presmptPrce: (() => {
             const n = Number(bid.presmptPrce);

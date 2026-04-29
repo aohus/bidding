@@ -9,6 +9,7 @@ interface Props {
   query: {
     region?: string;
     industry?: string;
+    industryField?: string;
     contractMethod?: string;
     presmptPrce?: number;
   };
@@ -80,7 +81,7 @@ export default function EstimateRateDistributionDialog({ isOpen, onClose, query 
     return () => {
       cancelled = true;
     };
-  }, [isOpen, query.region, query.industry, query.contractMethod, query.presmptPrce]);
+  }, [isOpen, query.region, query.industry, query.industryField, query.contractMethod, query.presmptPrce]);
 
   const histogram = data?.items ? buildHistogram(data.items.map((it) => it.reserve_rate)) : [];
   const maxCount = histogram.reduce((m, b) => Math.max(m, b.count), 0) || 1;
@@ -121,12 +122,12 @@ export default function EstimateRateDistributionDialog({ isOpen, onClose, query 
                 <h3 className="text-sm font-semibold mb-2">사정율 분포 (히스토그램)</h3>
                 <div className="flex items-end gap-1 h-32 border-b border-l border-gray-200 px-2">
                   {histogram.map((bin, i) => (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${formatPct(bin.binStart)} ~ ${formatPct(bin.binEnd)}: ${bin.count}건`}>
-                      <div
-                        className="w-full bg-blue-500 rounded-t"
-                        style={{ height: `${(bin.count / maxCount) * 100}%` }}
-                      />
-                    </div>
+                    <div
+                      key={i}
+                      className="flex-1 bg-blue-500 rounded-t min-h-[1px]"
+                      style={{ height: `${(bin.count / maxCount) * 100}%` }}
+                      title={`${formatPct(bin.binStart)} ~ ${formatPct(bin.binEnd)}: ${bin.count}건`}
+                    />
                   ))}
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground mt-1 px-2">

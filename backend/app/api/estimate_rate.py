@@ -60,15 +60,17 @@ def _budget_bucket(amount: Optional[int]) -> Optional[str]:
 
 
 _LOOKUP_LEVELS: list[tuple[str, ...]] = [
-    ("region", "industry", "contract_method", "budget_bucket"),
+    ("region", "industry", "industry_field", "contract_method", "budget_bucket"),
+    ("region", "industry", "industry_field", "budget_bucket"),
     ("region", "industry", "budget_bucket"),
-    ("region", "budget_bucket"),
+    ("industry", "budget_bucket"),
     ("budget_bucket",),
 ]
 
 _KEY_TO_RAW_COL = {
-    "region": "n.data->>'cnstrtsiteRgnNm'",
+    "region": "n.data->>'prtcptPsblRgnNms'",
     "industry": "n.data->>'permsnIndstrytyListNms'",
+    "industry_field": "n.data->>'indstrytyMfrcFldListNms'",
     "contract_method": "n.data->>'cntrctCnclsMthdNm'",
     "budget_bucket": "budget_bucket(n.presmpt_prce)",
 }
@@ -141,8 +143,9 @@ async def _resolve_matched_group(
 
 @router.get("", response_model=EstimateRateResponse)
 async def get_estimate_rate(
-    region: Optional[str] = Query(None, description="공사현장지역명"),
-    industry: Optional[str] = Query(None, description="허용업종(쉼표구분)"),
+    region: Optional[str] = Query(None, description="참가가능지역명(prtcptPsblRgnNms)"),
+    industry: Optional[str] = Query(None, description="허용업종(permsnIndstrytyListNms)"),
+    industry_field: Optional[str] = Query(None, description="주력분야(indstrytyMfrcFldListNms)"),
     contract_method: Optional[str] = Query(None, description="계약체결방법명"),
     presmpt_prce: Optional[int] = Query(None, ge=0, description="추정가격 (원)"),
     prefer: Literal["avg", "median"] = Query("avg"),
@@ -150,16 +153,20 @@ async def get_estimate_rate(
 ) -> EstimateRateResponse:
     """비슷한 공고 그룹의 사정율을 반환 (raw 데이터 기반 PERCENTILE_CONT).
 
+    그룹 정의: [참가지역, 허용업종, 주력분야, 계약방법, 예산범주]
+
     계층적 fallback (n >= MIN_SAMPLE_SIZE):
-      1. (region, industry, contract_method, budget_bucket)
-      2. (region, industry, budget_bucket)
-      3. (region, budget_bucket)
-      4. (budget_bucket)
-      5. fallback_default → 1.0
+      1. (region, industry, industry_field, contract_method, budget_bucket)
+      2. (region, industry, industry_field, budget_bucket)
+      3. (region, industry, budget_bucket)
+      4. (industry, budget_bucket)
+      5. (budget_bucket)
+      6. fallback_default → 1.0
     """
     values = {
         "region": region or "",
         "industry": industry or "",
+        "industry_field": industry_field or "",
         "contract_method": contract_method or "",
         "budget_bucket": _budget_bucket(presmpt_prce) or "",
     }
@@ -195,6 +202,7 @@ async def get_estimate_rate(
 async def get_estimate_rate_distribution(
     region: Optional[str] = Query(None),
     industry: Optional[str] = Query(None),
+    industry_field: Optional[str] = Query(None),
     contract_method: Optional[str] = Query(None),
     presmpt_prce: Optional[int] = Query(None, ge=0),
     limit: int = Query(200, ge=1, le=500),
@@ -208,6 +216,7 @@ async def get_estimate_rate_distribution(
     values = {
         "region": region or "",
         "industry": industry or "",
+        "industry_field": industry_field or "",
         "contract_method": contract_method or "",
         "budget_bucket": _budget_bucket(presmpt_prce) or "",
     }

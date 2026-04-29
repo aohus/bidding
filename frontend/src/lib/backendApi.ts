@@ -305,6 +305,7 @@ class BackendApiService {
   async getEstimateRate(params: {
     region?: string;
     industry?: string;
+    industryField?: string;
     contractMethod?: string;
     presmptPrce?: number;
     prefer?: 'avg' | 'median';
@@ -312,6 +313,7 @@ class BackendApiService {
     const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/estimate-rate`);
     if (params.region) url.searchParams.append('region', params.region);
     if (params.industry) url.searchParams.append('industry', params.industry);
+    if (params.industryField) url.searchParams.append('industry_field', params.industryField);
     if (params.contractMethod) url.searchParams.append('contract_method', params.contractMethod);
     if (params.presmptPrce != null && Number.isFinite(params.presmptPrce)) {
       url.searchParams.append('presmpt_prce', String(Math.trunc(params.presmptPrce)));
@@ -331,6 +333,7 @@ class BackendApiService {
   async getEstimateRateDistribution(params: {
     region?: string;
     industry?: string;
+    industryField?: string;
     contractMethod?: string;
     presmptPrce?: number;
     limit?: number;
@@ -338,6 +341,7 @@ class BackendApiService {
     const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/estimate-rate/distribution`);
     if (params.region) url.searchParams.append('region', params.region);
     if (params.industry) url.searchParams.append('industry', params.industry);
+    if (params.industryField) url.searchParams.append('industry_field', params.industryField);
     if (params.contractMethod) url.searchParams.append('contract_method', params.contractMethod);
     if (params.presmptPrce != null && Number.isFinite(params.presmptPrce)) {
       url.searchParams.append('presmpt_prce', String(Math.trunc(params.presmptPrce)));
