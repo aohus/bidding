@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     NOTIFICATION_CHECK_INTERVAL: int = 3600  # seconds (1 hour)
     ENABLE_BID_SYNC: bool = True
     ALERT_EMAIL: str = ""  # 동기화 실패 알림 수신 이메일 (미설정 시 FROM_EMAIL 사용)
+
+    # Reserve-price one-shot backfill (배포 시 자동 실행)
+    # 둘 다 비어있지 않을 때만 startup 시 1회 백필 + mv REFRESH 수행.
+    # 완료 후 ON_DUPLICATE_SKIP 으로 동일 윈도우 재실행은 자동 skip 됨.
+    RESERVE_PRICE_BACKFILL_FROM: str = ""  # YYYYMMDD
+    RESERVE_PRICE_BACKFILL_TO: str = ""  # YYYYMMDD
     
     @property
     def cors_origins(self) -> List[str]:

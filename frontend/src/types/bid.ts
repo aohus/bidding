@@ -97,6 +97,36 @@ export interface BidItem {
 }
 
 
+export type ReserveRateSource = 'group_avg' | 'group_median' | 'fallback_default';
+
+export interface EstimateRateResponse {
+  expected_reserve_rate: number;
+  source: ReserveRateSource;
+  sample_size: number;
+  matched_keys: string[];
+  p25?: number | null;
+  p75?: number | null;
+}
+
+export interface EstimateRateDistributionItem {
+  bid_ntce_no: string;
+  bid_ntce_nm?: string | null;
+  openg_dt?: string | null;
+  bssamt?: number | null;
+  plnprc?: number | null;
+  reserve_rate: number;
+}
+
+export interface EstimateRateDistributionResponse {
+  matched_keys: string[];
+  sample_size: number;
+  avg_rate?: number | null;
+  median_rate?: number | null;
+  p25?: number | null;
+  p75?: number | null;
+  items: EstimateRateDistributionItem[];
+}
+
 export type BidCalculationResult =
   | {
       ok: true;
@@ -107,8 +137,11 @@ export type BidCalculationResult =
       usedFallback: boolean;          // 배정예산금액을 기초금액 대신 사용했는지
       aValue: number;                 // A값
       lowerLimitRate: number;         // 낙찰하한율 (%)
-      margin: string;                 // "+1,000원"
-      note: string;                   // "낙찰하한가 + 1,000원 전략"
+      expectedPresumedPrice: number;  // 추정 예정가격 (= basisAmount × expectedReserveRate)
+      expectedReserveRate: number;    // 예상 사정율 (0.97~1.03 권장, default 1.0)
+      reserveRateSource: ReserveRateSource; // 사정율 출처
+      margin: string;                 // "없음" | "+1,000원" 등 (동적)
+      note: string;                   // 전략 설명 (동적)
     }
   | {
       ok: false;

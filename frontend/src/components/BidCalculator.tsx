@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { BidAValueItem, BidItem } from '@/types/bid';
+import { BidAValueItem, BidItem, ReserveRateSource } from '@/types/bid';
 import { calculateOptimalBidPrice } from '@/lib/bidCalculations';
 import { downloadDocument } from '@/lib/api';
 import { backendApi } from '@/lib/backendApi';
 import { Download, FileText, Calculator, ExternalLink, Info, Star, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import EstimateRateDistributionDialog from '@/components/EstimateRateDistributionDialog';
 
 
 interface BidCalculatorProps {
@@ -22,6 +23,44 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const [showBidPriceInput, setShowBidPriceInput] = useState(false);
   const [bidPriceInput, setBidPriceInput] = useState('');
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
+  const [reserveRate, setReserveRate] = useState<{
+    value: number;
+    source: ReserveRateSource;
+    sampleSize: number;
+    matchedKeys: string[];
+  } | null>(null);
+  const [distributionOpen, setDistributionOpen] = useState(false);
+
+  useEffect(() => {
+    setReserveRate(null);
+    if (!bid || !isOpen) {
+      return;
+    }
+    let cancelled = false;
+    const presmptPrce = Number(bid.presmptPrce);
+    backendApi
+      .getEstimateRate({
+        region: bid.cnstrtsiteRgnNm,
+        industry: bid.permsnIndstrytyListNms,
+        contractMethod: bid.cntrctCnclsMthdNm,
+        presmptPrce: Number.isFinite(presmptPrce) && presmptPrce > 0 ? presmptPrce : undefined,
+      })
+      .then((res) => {
+        if (cancelled) return;
+        setReserveRate({
+          value: res.expected_reserve_rate,
+          source: res.source,
+          sampleSize: res.sample_size,
+          matchedKeys: res.matched_keys,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bid, isOpen]);
 
   const handleSaveBookmark = async (status: 'interested' | 'bid_completed', bidPrice?: number) => {
     if (!bid) return;
@@ -66,6 +105,8 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     fallbackBasisAmount: bid.asignBdgtAmt,
     aValueItem,
     sucsfbidLwltRate: bid.sucsfbidLwltRate,
+    expectedReserveRate: reserveRate?.value,
+    reserveRateSource: reserveRate?.source,
   });
 
   const formatPrice = (price: string | undefined) => {
@@ -223,9 +264,16 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                       <p className="text-amber-700">기초금액 미공개로 배정예산금액을 사용했습니다. 참고용으로만 활용하세요.</p>
                     </div>
                   )}
+                  {/* 사정율 fallback 경고 */}
+                  {result.reserveRateSource === 'fallback_default' && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                      <p className="font-semibold text-amber-800">사정율 데이터 없음 (100% 가정)</p>
+                      <p className="text-amber-700">유사 공고 사정율 데이터가 없어 100%로 가정했습니다. 실제 사정율은 다를 수 있습니다.</p>
+                    </div>
+                  )}
                   {/* 추천 투찰금액 */}
                   <div className="p-5 bg-blue-600 text-white rounded-xl shadow-inner text-center">
-                    <p className="text-sm text-blue-200 mb-1">추천 투찰금액</p>
+                    <p className="text-sm text-blue-200 mb-1">추천 투찰금액 (추정치)</p>
                     <p className="text-2xl font-bold">{result.optimalBidPrice.toLocaleString()}원</p>
                     <div className="flex justify-center gap-6 mt-2 text-sm text-blue-200">
                       <span>투찰률 {displayedBidRate?.toFixed(3)}%</span>
@@ -233,11 +281,14 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                     <p className="mt-1 text-xs text-blue-300">
                       {`${result.note} (마진 ${result.margin})`}
                     </p>
+                    <p className="mt-2 text-[11px] text-blue-200/80">
+                      예정가격은 개찰 전까지 비공개이므로 실제 낙찰하한가는 다를 수 있습니다.
+                    </p>
                   </div>
 
                   {/* 신뢰 구간 */}
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-center">
-                    <p className="text-xs text-muted-foreground mb-1">낙찰하한가 신뢰 구간</p>
+                    <p className="text-xs text-muted-foreground mb-1">사정율 ±3%p 변동 시 낙찰하한가 범위</p>
                     <p className="font-bold text-blue-800">
                       {result.confidenceRange.low.toLocaleString()}원 ~ {result.confidenceRange.high.toLocaleString()}원
                     </p>
@@ -256,8 +307,49 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                       <p className="font-bold text-gray-800">{result.lowerLimitRate}%</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <span>예상 사정율</span>
+                          <span
+                            className={
+                              result.reserveRateSource === 'fallback_default'
+                                ? 'inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700'
+                                : 'inline-block px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700'
+                            }
+                          >
+                            {result.reserveRateSource === 'group_avg'
+                              ? '그룹 평균'
+                              : result.reserveRateSource === 'group_median'
+                                ? '그룹 중앙값'
+                                : '기본값'}
+                          </span>
+                        </p>
+                        {reserveRate && reserveRate.sampleSize > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setDistributionOpen(true)}
+                            className="text-[10px] text-blue-600 hover:underline"
+                          >
+                            자세히 보기
+                          </button>
+                        )}
+                      </div>
+                      <p className="font-bold text-gray-800">{(result.expectedReserveRate * 100).toFixed(2)}%</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {reserveRate && reserveRate.sampleSize > 0
+                          ? `유사 공고 ${reserveRate.sampleSize}건 평균`
+                          : '유사 공고 표본 부족 (100% 가정)'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">A값</p>
                       <p className="font-bold text-gray-800">{result.aValue.toLocaleString()}원</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">추정 예정가격</p>
+                      <p className="font-bold text-gray-800">
+                        {result.expectedPresumedPrice.toLocaleString()}원
+                      </p>
                     </div>
                     <div className="col-span-2 p-3 bg-gray-50 rounded-lg">
                       <p className="text-xs text-muted-foreground">추정 낙찰하한가</p>
@@ -345,6 +437,19 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
           </div>
         </div>
       </DialogContent>
+      <EstimateRateDistributionDialog
+        isOpen={distributionOpen}
+        onClose={() => setDistributionOpen(false)}
+        query={{
+          region: bid.cnstrtsiteRgnNm,
+          industry: bid.permsnIndstrytyListNms,
+          contractMethod: bid.cntrctCnclsMthdNm,
+          presmptPrce: (() => {
+            const n = Number(bid.presmptPrce);
+            return Number.isFinite(n) && n > 0 ? n : undefined;
+          })(),
+        }}
+      />
     </Dialog>
   );
 }

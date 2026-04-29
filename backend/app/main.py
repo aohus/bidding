@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
-from app.api import auth, preferences, bids, notifications, locations, profile
+from app.api import auth, preferences, bids, notifications, locations, profile, estimate_rate
 from app.services.scheduler import notification_scheduler
 from app.services.bid_sync_scheduler import bid_sync_scheduler
 import asyncio
@@ -27,6 +27,25 @@ async def lifespan(app: FastAPI):
     if settings.ENABLE_BID_SYNC:
         asyncio.create_task(bid_sync_scheduler.start())
         logger.info("Bid data sync scheduler started")
+
+    # Startup: One-shot reserve_price backfill (env-driven)
+    if settings.RESERVE_PRICE_BACKFILL_FROM and settings.RESERVE_PRICE_BACKFILL_TO:
+        from app.services.reserve_price_backfill import backfill_reserve_prices
+
+        async def _run_backfill() -> None:
+            try:
+                logger.info(
+                    f"Starting one-shot reserve_price backfill: "
+                    f"{settings.RESERVE_PRICE_BACKFILL_FROM} ~ {settings.RESERVE_PRICE_BACKFILL_TO}"
+                )
+                await backfill_reserve_prices(
+                    settings.RESERVE_PRICE_BACKFILL_FROM,
+                    settings.RESERVE_PRICE_BACKFILL_TO,
+                )
+            except Exception as exc:  # background task: must not crash startup
+                logger.error(f"reserve_price startup backfill failed: {exc}")
+
+        asyncio.create_task(_run_backfill())
 
     yield
 
@@ -63,6 +82,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(preferences.router)
 app.include_router(bids.router)
+app.include_router(estimate_rate.router)
 app.include_router(notifications.router)
 app.include_router(locations.router)
 app.include_router(profile.router)

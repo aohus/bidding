@@ -30,7 +30,7 @@ const defaultInput = () => ({
 
 describe('calculateOptimalBidPrice (새 공식)', () => {
   describe('정상 계산 (ok: true)', () => {
-    it('추정 낙찰하한가 = round((basisAmount - aValue) × lowerLimitRate/100 + aValue)', () => {
+    it('추정 낙찰하한가 = round((expectedPresumedPrice - aValue) × lowerLimitRate/100 + aValue)', () => {
       const result = calculateOptimalBidPrice(defaultInput());
       if (!result.ok) throw new Error('expected ok');
 
@@ -39,17 +39,20 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
       expect(result.lowerLimitRate).toBe(87.745);
       expect(result.basisAmount).toBe(1_000_000_000);
 
+      // expectedReserveRate 미지정 → 1.0 fallback
+      // expectedPresumedPrice = 1,000,000,000 × 1.0 = 1,000,000,000
       const expectedLowerBound = Math.round(
         ((1_000_000_000 - 23_000_000) * 87.745) / 100 + 23_000_000,
       );
       expect(result.estimatedLowerBound).toBe(expectedLowerBound);
     });
 
-    it('추천 투찰금액 = 추정 낙찰하한가 + 1,000원', () => {
+    it('추천 투찰금액 = 추정 낙찰하한가 (default marginWon=0)', () => {
       const result = calculateOptimalBidPrice(defaultInput());
       if (!result.ok) throw new Error('expected ok');
 
-      expect(result.optimalBidPrice).toBe(result.estimatedLowerBound + FIXED_MARGIN);
+      expect(result.optimalBidPrice).toBe(result.estimatedLowerBound);
+      // FIXED_MARGIN export 호환성 유지 (deprecated, default marginWon=0)
       expect(FIXED_MARGIN).toBe(1000);
     });
 
@@ -62,10 +65,10 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
 
       // (1,000,000,000 - 23,000,000) × 0.90 + 23,000,000 = 902,300,000
       expect(result.estimatedLowerBound).toBe(902_300_000);
-      expect(result.optimalBidPrice).toBe(902_301_000);
+      expect(result.optimalBidPrice).toBe(902_300_000);
     });
 
-    it('A값이 0일 때: optimalBidPrice = round(basisAmount × lowerLimitRate/100) + 1000', () => {
+    it('A값이 0일 때: optimalBidPrice = round(basisAmount × lowerLimitRate/100)', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
         aValueItem: null,
@@ -75,12 +78,11 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
       expect(result.aValue).toBe(0);
       const expected = Math.round((1_000_000_000 * 87.745) / 100);
       expect(result.estimatedLowerBound).toBe(expected);
-      expect(result.optimalBidPrice).toBe(expected + 1000);
+      expect(result.optimalBidPrice).toBe(expected);
     });
 
     it('round 반올림 경계 검증 (87.7451% × 1억)', () => {
-      // (100,000,000 - 0) × 87.7451 / 100 = 87,745,100.0
-      // 1원 미만 분수 발생 시 round 동작 확인
+      // (100,000,001 - 0) × 87.7451 / 100
       const result = calculateOptimalBidPrice({
         ...defaultInput(),
         basisAmount: '100000001',
@@ -91,7 +93,7 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
 
       const raw = (100_000_001 * 87.7451) / 100;
       expect(result.estimatedLowerBound).toBe(Math.round(raw));
-      expect(result.optimalBidPrice).toBe(Math.round(raw) + 1000);
+      expect(result.optimalBidPrice).toBe(Math.round(raw));
     });
 
     it('qltyMngcst와 smkpAmt가 Y이면 A값에 포함', () => {
@@ -127,11 +129,180 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
       expect(result.estimatedLowerBound).toBeLessThan(result.confidenceRange.high);
     });
 
-    it('margin 표기 = "+1,000원"', () => {
+    it('margin 표기 = "없음" (default marginWon=0)', () => {
       const result = calculateOptimalBidPrice(defaultInput());
       if (!result.ok) throw new Error('expected ok');
 
+      expect(result.margin).toBe('없음');
+    });
+
+    it('expectedReserveRate=0.97 적용 시 추정 예정가격 = basisAmount × 0.97', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.97,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(0.97);
+      expect(result.expectedPresumedPrice).toBe(Math.round(1_000_000_000 * 0.97));
+    });
+
+    it('expectedReserveRate=1.03 적용 시 추정 예정가격 = basisAmount × 1.03', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 1.03,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.03);
+      expect(result.expectedPresumedPrice).toBe(Math.round(1_000_000_000 * 1.03));
+    });
+
+    it("expectedReserveRate 미지정 시 1.0 fallback + reserveRateSource='fallback_default'", () => {
+      const result = calculateOptimalBidPrice(defaultInput());
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.0);
+      expect(result.reserveRateSource).toBe('fallback_default');
+      expect(result.expectedPresumedPrice).toBe(1_000_000_000);
+    });
+
+    it('marginWon=1000 옵션 시 optimalBidPrice = estimatedLowerBound + 1000 + margin="+1,000원"', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        marginWon: 1000,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.optimalBidPrice).toBe(result.estimatedLowerBound + 1000);
       expect(result.margin).toBe('+1,000원');
+      expect(result.note).toBe('낙찰하한가 + 1,000원 전략');
+    });
+
+    it("reserveRateSource='group_avg' 전달 시 result에 그대로 반영", () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.985,
+        reserveRateSource: 'group_avg',
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.reserveRateSource).toBe('group_avg');
+      expect(result.expectedReserveRate).toBe(0.985);
+    });
+
+    it('expectedReserveRate=0.97일 때 estimatedLowerBound 정확히 계산', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.97,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      // expectedPresumedPrice = round(1,000,000,000 × 0.97) = 970,000,000
+      // estimatedLowerBound = round((970,000,000 - 23,000,000) × 87.745 / 100 + 23,000,000)
+      const expectedPresumedPrice = Math.round(1_000_000_000 * 0.97);
+      const expected = Math.round(
+        ((expectedPresumedPrice - 23_000_000) * 87.745) / 100 + 23_000_000,
+      );
+      expect(result.estimatedLowerBound).toBe(expected);
+    });
+
+    it('confidenceRange는 사정율 ±3%p 변동 기반 (이중 곱 없음)', () => {
+      // default rate=1.0 → [0.97, 1.03] basisAmount → 기존 동작 보존
+      const result = calculateOptimalBidPrice(defaultInput());
+      if (!result.ok) throw new Error('expected ok');
+
+      const aValue = 23_000_000;
+      const rate = 87.745;
+      const lb = (presumed: number) =>
+        Math.round(((presumed - aValue) * rate) / 100 + aValue);
+
+      expect(result.confidenceRange.low).toBe(lb(1_000_000_000 * 0.97));
+      expect(result.confidenceRange.high).toBe(lb(1_000_000_000 * 1.03));
+    });
+
+    it('사정율 0.97일 때도 estimatedLowerBound이 신뢰구간 내부에 위치', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.97,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.confidenceRange.low).toBeLessThan(result.estimatedLowerBound);
+      expect(result.estimatedLowerBound).toBeLessThan(result.confidenceRange.high);
+    });
+  });
+
+  describe('입력 검증 (sanitization)', () => {
+    it('expectedReserveRate가 음수면 1.0 fallback', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: -0.5,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.0);
+    });
+
+    it('expectedReserveRate가 0이면 1.0 fallback', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.0);
+    });
+
+    it('expectedReserveRate가 NaN이면 1.0 fallback', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: NaN,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.0);
+    });
+
+    it('expectedReserveRate가 너무 크면 1.5로 클램프', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 5.0,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(1.5);
+    });
+
+    it('expectedReserveRate가 너무 작으면 0.5로 클램프', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.1,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(0.5);
+    });
+
+    it('marginWon이 음수면 0으로 클램프', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        marginWon: -5000,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.optimalBidPrice).toBe(result.estimatedLowerBound);
+      expect(result.margin).toBe('없음');
+    });
+
+    it('marginWon이 NaN이면 0으로 fallback', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        marginWon: NaN,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.optimalBidPrice).toBe(result.estimatedLowerBound);
     });
   });
 

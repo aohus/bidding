@@ -97,6 +97,29 @@ class BidLicenseLimit(Base):
     fetched_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class BidReservePrice(Base):
+    """예정가격(plnprc) 정보 - 개찰 후에만 공개되는 정확한 사정율 산출용.
+
+    사정율 = plnprc / bssamt
+    bid_type='cnstwk' (공사) | 'servc' (용역)
+    """
+    __tablename__ = "bid_reserve_prices"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord", "bid_type"),
+        Index("ix_bid_reserve_prices_fetched_at", "fetched_at"),
+    )
+
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    bid_type = Column(String(10), nullable=False)
+    bssamt = Column(BigInteger, nullable=True)
+    plnprc = Column(BigInteger, nullable=True)
+    bsis_plnprc = Column(BigInteger, nullable=True)
+    rl_openg_dt = Column(String(20), nullable=True)
+    data = Column(JSONB, nullable=True)
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class DataSyncLog(Base):
     """데이터 동기화 로그 - 시간 윈도우 기반 동기화 추적
 

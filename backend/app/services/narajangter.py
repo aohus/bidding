@@ -29,6 +29,8 @@ class NaraJangterService:
     PRTCPT_PSBL_RGN_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn"
     LICENSE_LIMIT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoLicenseLimit"
     OPENG_RESULT_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoOpengCompt"
+    CNSTWK_RESERVE_PRICE_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoCnstwkPreparPcDetail"
+    SERVC_RESERVE_PRICE_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoServcPreparPcDetail"
     url_dict = {
         'contract': BASE_CNST_URL,
         'service': BASE_SERV_URL,
@@ -363,6 +365,50 @@ class NaraJangterService:
 
             items_data, _ = self._safe_parse_response(response, "get_bid_opening_results")
             return [BidResultItem(**item) for item in items_data]
+
+    async def get_reserve_price(
+        self,
+        bidNtceNo: str,
+        bid_type: str = "cnstwk",
+        bidNtceOrd: Optional[str] = None,
+    ) -> Optional[dict]:
+        """예정가격(plnprc) 상세 정보를 1건 조회합니다.
+
+        Returns: 첫 페이지 첫 항목 raw dict (없으면 None).
+        plnprc, bssamt, bsisPlnprc, rlOpengDt 등이 포함됨.
+        """
+        target_url = (
+            self.SERVC_RESERVE_PRICE_URL
+            if bid_type and bid_type.lower() in ("servc", "service", "용역")
+            else self.CNSTWK_RESERVE_PRICE_URL
+        )
+        query_params = {
+            "serviceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "pageNo": 1,
+            "numOfRows": 10,
+            "bidNtceNo": bidNtceNo,
+            "type": "json",
+        }
+        if bidNtceOrd:
+            query_params["bidNtceOrd"] = bidNtceOrd
+        logger.info(f"get_reserve_price: bidNtceNo={bidNtceNo}, type={bid_type}")
+
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
+            try:
+                response = await client.get(target_url, params=query_params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (404, 429):
+                    logger.warning(
+                        f"get_reserve_price: HTTP {e.response.status_code} for {bidNtceNo}"
+                    )
+                    return None
+                raise
+
+            items_data, _ = self._safe_parse_response(response, f"get_reserve_price({bidNtceNo})")
+            if not items_data:
+                return None
+            return items_data[0]
 
 
 narajangter_service = NaraJangterService()

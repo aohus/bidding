@@ -1,5 +1,5 @@
 import { AuthService } from './auth';
-import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus } from '@/types/bid';
+import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus, EstimateRateResponse, EstimateRateDistributionResponse } from '@/types/bid';
 
 const API_BASE_URL = '/server';
 
@@ -298,6 +298,60 @@ class BackendApiService {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to delete bookmark');
     }
+  }
+
+  // --- Estimate Rate API ---
+
+  async getEstimateRate(params: {
+    region?: string;
+    industry?: string;
+    contractMethod?: string;
+    presmptPrce?: number;
+    prefer?: 'avg' | 'median';
+  }): Promise<EstimateRateResponse> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/estimate-rate`);
+    if (params.region) url.searchParams.append('region', params.region);
+    if (params.industry) url.searchParams.append('industry', params.industry);
+    if (params.contractMethod) url.searchParams.append('contract_method', params.contractMethod);
+    if (params.presmptPrce != null && Number.isFinite(params.presmptPrce)) {
+      url.searchParams.append('presmpt_prce', String(Math.trunc(params.presmptPrce)));
+    }
+    if (params.prefer) url.searchParams.append('prefer', params.prefer);
+
+    const response = await this.authFetch(url.toString(), {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error('사정율 조회 실패');
+    }
+    return response.json();
+  }
+
+  async getEstimateRateDistribution(params: {
+    region?: string;
+    industry?: string;
+    contractMethod?: string;
+    presmptPrce?: number;
+    limit?: number;
+  }): Promise<EstimateRateDistributionResponse> {
+    const url = new URL(`${window.location.origin}${API_BASE_URL}/bids/estimate-rate/distribution`);
+    if (params.region) url.searchParams.append('region', params.region);
+    if (params.industry) url.searchParams.append('industry', params.industry);
+    if (params.contractMethod) url.searchParams.append('contract_method', params.contractMethod);
+    if (params.presmptPrce != null && Number.isFinite(params.presmptPrce)) {
+      url.searchParams.append('presmpt_prce', String(Math.trunc(params.presmptPrce)));
+    }
+    if (params.limit) url.searchParams.append('limit', String(params.limit));
+
+    const response = await this.authFetch(url.toString(), {
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error('사정율 분포 조회 실패');
+    }
+    return response.json();
   }
 
   // --- Bid Results API ---

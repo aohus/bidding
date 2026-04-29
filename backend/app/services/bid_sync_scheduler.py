@@ -43,12 +43,16 @@ class BidDataSyncScheduler:
     BACKFILL_DAYS = 30
     MAX_BACKFILL_PER_RUN = 5
     MAX_API_CALLS_PER_RUN = 80
+    RESERVE_PRICE_BATCH = 10  # 사이클당 reserve_price fetch 건수
+    ESTIMATE_RATE_REFRESH_WEEKDAY = 6  # Sunday (Mon=0)
+    ESTIMATE_RATE_REFRESH_HOUR = 3  # KST 03:00
 
     def __init__(self):
         self.is_running = False
         self._sync_lock = asyncio.Lock()
         self._last_alert_at: datetime | None = None
         self._failed_windows: list[str] = []
+        self._last_estimate_refresh_at: datetime | None = None
 
     async def start(self):
         if self.is_running:
@@ -80,10 +84,73 @@ class BidDataSyncScheduler:
             self._failed_windows = []
             api_calls = 0
             api_calls = await self._sync_recent_hours(api_calls)
-            await self._backfill_past_days(api_calls)
+            api_calls = await self._backfill_past_days(api_calls)
+            await self._sync_reserve_prices(api_calls)
 
             if self._failed_windows:
                 await self._send_failure_alert()
+
+        await self._maybe_refresh_estimate_rate_stats()
+
+    async def _sync_reserve_prices(self, api_calls: int) -> int:
+        """개찰 완료 공고에 대해 예정가격(plnprc) 정보를 사이클당 N건 fetch."""
+        if api_calls >= self.MAX_API_CALLS_PER_RUN:
+            return api_calls
+        try:
+            async with AsyncSessionLocal() as db:
+                targets = await bid_data_service.list_pending_reserve_price_targets(
+                    db, limit=self.RESERVE_PRICE_BATCH
+                )
+        except Exception as exc:
+            logger.error(f"reserve_price target fetch failed: {exc}")
+            return api_calls
+
+        from app.services.reserve_price_backfill import fetch_reserve_price_with_fallback
+
+        for bid_no, bid_ord, bid_type in targets:
+            if api_calls >= self.MAX_API_CALLS_PER_RUN:
+                break
+            try:
+                item, used_type, calls_made = await fetch_reserve_price_with_fallback(
+                    bid_no, bid_ord, bid_type
+                )
+                api_calls += calls_made
+                if item is not None:
+                    async with AsyncSessionLocal() as db:
+                        await bid_data_service.save_reserve_price(
+                            db, bid_no, bid_ord or "000", used_type, item
+                        )
+            except Exception as exc:
+                logger.warning(
+                    f"reserve_price sync failed for {bid_no}-{bid_ord} ({bid_type}): {exc}"
+                )
+            await asyncio.sleep(0.5)
+        return api_calls
+
+    async def _maybe_refresh_estimate_rate_stats(self) -> None:
+        """매주 일요일 새벽 mv_estimate_rate_stats 를 REFRESH 합니다."""
+        from sqlalchemy import text
+
+        now = datetime.now(KST)
+        if now.weekday() != self.ESTIMATE_RATE_REFRESH_WEEKDAY:
+            return
+        if now.hour < self.ESTIMATE_RATE_REFRESH_HOUR:
+            return
+        if self._last_estimate_refresh_at is not None:
+            since = (now - self._last_estimate_refresh_at).total_seconds()
+            if since < 6 * 24 * 3600:
+                return
+
+        try:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_estimate_rate_stats")
+                )
+                await db.commit()
+            self._last_estimate_refresh_at = now
+            logger.info("mv_estimate_rate_stats refreshed")
+        except Exception as exc:
+            logger.error(f"estimate_rate_stats refresh failed: {exc}")
 
     async def _sync_recent_hours(self, api_calls: int) -> int:
         """최근 N시간을 시간별 윈도우로 동기화합니다."""

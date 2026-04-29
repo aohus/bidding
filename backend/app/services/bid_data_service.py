@@ -12,6 +12,7 @@ from app.models.bid import (
     BidLicenseLimit,
     BidNotice,
     BidPrtcptPsblRgn,
+    BidReservePrice,
     DataSyncLog,
     UserLocation,
 )
@@ -457,6 +458,99 @@ class BidDataService:
             .values(fetched_at=func.now())
         )
         await db.commit()
+
+    async def list_pending_reserve_price_targets(
+        self,
+        db: AsyncSession,
+        limit: int = 10,
+    ) -> List[tuple[str, str, str]]:
+        """예정가격(plnprc) 미수집 + 개찰 완료 공고 N건을 반환합니다.
+
+        Returns: [(bid_ntce_no, bid_ntce_ord, bid_type), ...]
+        bid_type 은 BidBasisAmount 에 저장된 값을 사용 (없으면 'cnstwk' default).
+        """
+        now_yyyymmddhhmm = datetime.now().strftime("%Y%m%d%H%M")
+        # 개찰 완료 + reserve_price 없음
+        sub_existing = (
+            select(BidReservePrice.bid_ntce_no, BidReservePrice.bid_ntce_ord)
+            .scalar_subquery()
+        )
+        result = await db.execute(
+            select(
+                BidNotice.bid_ntce_no,
+                BidNotice.bid_ntce_ord,
+                func.coalesce(BidBasisAmount.bid_type, "cnstwk"),
+            )
+            .outerjoin(
+                BidBasisAmount,
+                and_(
+                    BidBasisAmount.bid_ntce_no == BidNotice.bid_ntce_no,
+                    BidBasisAmount.bid_ntce_ord == BidNotice.bid_ntce_ord,
+                ),
+            )
+            .where(
+                BidNotice.openg_dt.isnot(None),
+                BidNotice.openg_dt != "",
+                BidNotice.openg_dt < now_yyyymmddhhmm,
+                ~exists().where(
+                    and_(
+                        BidReservePrice.bid_ntce_no == BidNotice.bid_ntce_no,
+                        BidReservePrice.bid_ntce_ord == BidNotice.bid_ntce_ord,
+                    )
+                ),
+            )
+            .order_by(BidNotice.openg_dt.desc())
+            .limit(limit)
+        )
+        return [(r[0], r[1], r[2]) for r in result.all()]
+
+    async def save_reserve_price(
+        self,
+        db: AsyncSession,
+        bid_ntce_no: str,
+        bid_ntce_ord: str,
+        bid_type: str,
+        item: Optional[dict],
+    ) -> bool:
+        """예정가격 항목을 저장합니다.
+
+        item=None 이면 저장하지 않고 False 반환 (다음 사이클 재시도 가능).
+        잘못된 bid_type 으로 인한 빈 응답이 영구 누락되지 않도록 함.
+        """
+        if item is None:
+            return False
+        bssamt = parse_price(item.get("bssamt"))
+        plnprc = parse_price(item.get("plnprc"))
+        bsis_plnprc = parse_price(item.get("bsisPlnprc"))
+        rl_openg_dt = item.get("rlOpengDt") or None
+
+        stmt = (
+            insert(BidReservePrice)
+            .values(
+                bid_ntce_no=bid_ntce_no,
+                bid_ntce_ord=bid_ntce_ord or "000",
+                bid_type=bid_type,
+                bssamt=bssamt if bssamt else None,
+                plnprc=plnprc if plnprc else None,
+                bsis_plnprc=bsis_plnprc if bsis_plnprc else None,
+                rl_openg_dt=rl_openg_dt,
+                data=item,
+            )
+            .on_conflict_do_update(
+                index_elements=["bid_ntce_no", "bid_ntce_ord", "bid_type"],
+                set_={
+                    "bssamt": bssamt if bssamt else None,
+                    "plnprc": plnprc if plnprc else None,
+                    "bsis_plnprc": bsis_plnprc if bsis_plnprc else None,
+                    "rl_openg_dt": rl_openg_dt,
+                    "data": item,
+                    "fetched_at": func.now(),
+                },
+            )
+        )
+        await db.execute(stmt)
+        await db.commit()
+        return True
 
     async def has_synced_data(
         self, db: AsyncSession, start_date: str, end_date: str

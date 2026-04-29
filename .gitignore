@@ -52,3 +52,5 @@ __pycache__
 
 _입찰/
 .ai/
+data.md
+estimatePrice.md
