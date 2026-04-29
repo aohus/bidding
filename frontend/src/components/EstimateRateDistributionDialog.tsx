@@ -24,7 +24,7 @@ type PlotDomain = {
 type StripPoint = {
   rate: number;
   xPercent: number;
-  yOffset: number;
+  lane: number;
 };
 
 const DEFAULT_RATE_DOMAIN: PlotDomain = {
@@ -82,18 +82,32 @@ function toPercent(value: number, domain: PlotDomain): number {
 }
 
 function buildStripPoints(rates: number[], domain: PlotDomain): StripPoint[] {
-  return rates
+  const xPercents = rates
     .slice()
     .sort((a, b) => a - b)
-    .map((rate, index) => {
-      const lane = index % 5;
-      const yPattern = [0, 6, 12, 18, 24];
-      return {
-        rate,
-        xPercent: clamp(toPercent(rate, domain), 0, 100),
-        yOffset: yPattern[lane] ?? 0,
-      };
-    });
+    .map((rate) => ({
+      rate,
+      xPercent: clamp(toPercent(rate, domain), 0, 100),
+    }));
+
+  const laneLastX: number[] = [];
+  const minGapPercent = 1.8;
+
+  return xPercents.map(({ rate, xPercent }) => {
+    let lane = laneLastX.findIndex((lastX) => xPercent - lastX >= minGapPercent);
+    if (lane === -1) {
+      lane = laneLastX.length;
+      laneLastX.push(xPercent);
+    } else {
+      laneLastX[lane] = xPercent;
+    }
+
+    return {
+      rate,
+      xPercent,
+      lane,
+    };
+  });
 }
 
 export default function EstimateRateDistributionDialog({ isOpen, onClose, query }: Props) {
@@ -131,6 +145,8 @@ export default function EstimateRateDistributionDialog({ isOpen, onClose, query 
   const rates = data?.items.map((item) => item.reserve_rate) ?? [];
   const plotDomain = buildPlotDomain(rates, [data?.p25, data?.median_rate, data?.p75]);
   const stripPoints = buildStripPoints(rates, plotDomain);
+  const maxLane = stripPoints.reduce((max, point) => Math.max(max, point.lane), 0);
+  const plotHeight = Math.min(180, Math.max(132, 96 + maxLane * 9));
   const medianPercent = data?.median_rate != null ? clamp(toPercent(data.median_rate, plotDomain), 0, 100) : null;
   const p25Percent = data?.p25 != null ? clamp(toPercent(data.p25, plotDomain), 0, 100) : null;
   const p75Percent = data?.p75 != null ? clamp(toPercent(data.p75, plotDomain), 0, 100) : null;
@@ -170,10 +186,10 @@ export default function EstimateRateDistributionDialog({ isOpen, onClose, query 
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <h3 className="text-sm font-semibold">사정율 분포</h3>
-                  <span className="text-[11px] text-muted-foreground">점 1개 = 표본 1건</span>
+                  <span className="text-[11px] text-muted-foreground">가까운 값은 위로 쌓아 표시</span>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-gradient-to-b from-slate-50 to-white px-3 py-3">
-                  <div className="relative h-32">
+                  <div className="relative" style={{ height: `${plotHeight}px` }}>
                     {p25Percent != null && p75Percent != null && (
                       <div
                         className="absolute top-4 h-5 rounded bg-blue-100/80"
@@ -198,10 +214,10 @@ export default function EstimateRateDistributionDialog({ isOpen, onClose, query 
                     {stripPoints.map((point, index) => (
                       <div
                         key={`${point.rate}-${index}`}
-                        className="absolute h-2.5 w-2.5 -translate-x-1/2 rounded-full border border-white bg-blue-600 shadow-sm"
+                        className="absolute h-2 w-2 -translate-x-1/2 rounded-full border border-white/80 bg-blue-600 shadow-sm"
                         style={{
                           left: `${point.xPercent}%`,
-                          bottom: `${32 + point.yOffset}px`,
+                          bottom: `${32 + point.lane * 9}px`,
                         }}
                         title={formatPct(point.rate, 3)}
                       />
