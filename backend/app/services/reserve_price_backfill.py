@@ -164,6 +164,13 @@ async def backfill_reserve_prices(
                             db, bid_no, bid_ord or "000", used_type, item
                         ):
                             saved += 1
+                else:
+                    # 두 endpoint 모두 빈 응답 → 물품/외자 등 공사/용역 외 카테고리.
+                    # sentinel 저장으로 다음 cycle 재시도 차단.
+                    async with AsyncSessionLocal() as db:
+                        await bid_data_service.mark_reserve_price_unavailable(
+                            db, bid_no, bid_ord or "000"
+                        )
                 if fetched - last_progress_log >= 20:
                     logger.info(
                         f"reserve_price backfill progress: fetched={fetched}, saved={saved}"

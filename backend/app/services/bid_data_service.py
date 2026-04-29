@@ -552,6 +552,38 @@ class BidDataService:
         await db.commit()
         return True
 
+    async def mark_reserve_price_unavailable(
+        self,
+        db: AsyncSession,
+        bid_ntce_no: str,
+        bid_ntce_ord: str,
+    ) -> None:
+        """공사/용역 두 endpoint 모두 빈 응답인 공고를 negative cache 로 마킹.
+
+        bid_type='unknown' sentinel row 를 저장하여 NOT EXISTS 로 재시도 차단.
+        plnprc/bssamt 는 NULL 이라 estimate_rate 통계엔 영향 없음.
+        물품/외자 등 cnstwk/servc 외 카테고리 공고가 매 cycle 재시도되어
+        API quota 가 낭비되는 문제를 막는다.
+        """
+        stmt = (
+            insert(BidReservePrice)
+            .values(
+                bid_ntce_no=bid_ntce_no,
+                bid_ntce_ord=bid_ntce_ord or "000",
+                bid_type="unknown",
+                bssamt=None,
+                plnprc=None,
+                bsis_plnprc=None,
+                rl_openg_dt=None,
+                data={"_no_data": True},
+            )
+            .on_conflict_do_nothing(
+                index_elements=["bid_ntce_no", "bid_ntce_ord", "bid_type"],
+            )
+        )
+        await db.execute(stmt)
+        await db.commit()
+
     async def has_synced_data(
         self, db: AsyncSession, start_date: str, end_date: str
     ) -> bool:

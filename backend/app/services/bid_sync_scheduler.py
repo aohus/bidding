@@ -115,6 +115,11 @@ class BidDataSyncScheduler:
                         await bid_data_service.save_reserve_price(
                             db, bid_no, bid_ord or "000", used_type, item
                         )
+                else:
+                    async with AsyncSessionLocal() as db:
+                        await bid_data_service.mark_reserve_price_unavailable(
+                            db, bid_no, bid_ord or "000"
+                        )
             except Exception as exc:
                 logger.warning(
                     f"reserve_price sync failed for {bid_no}-{bid_ord} ({bid_type}): {exc}"
