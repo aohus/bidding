@@ -68,16 +68,78 @@ _LOOKUP_LEVELS: list[tuple[str, ...]] = [
 ]
 
 _KEY_TO_RAW_COL = {
-    "region": "n.data->>'prtcptPsblRgnNms'",
-    "industry": "n.data->>'permsnIndstrytyListNms'",
-    "industry_field": "n.data->>'indstrytyMfrcFldListNms'",
-    "contract_method": "n.data->>'cntrctCnclsMthdNm'",
-    "budget_bucket": "budget_bucket(n.presmpt_prce)",
+    "region": "n.region",
+    "industry": "n.industry",
+    "industry_field": "n.industry_field",
+    "contract_method": "n.contract_method",
+    "budget_bucket": "n.budget_bucket",
 }
 
 
+# bid_notices.data 안에는 prtcptPsblRgnNms / permsnIndstrytyListNms /
+# indstrytyMfrcFldListNms 가 저장되지 않는다 (응답 합성 시점에만 채워짐).
+# raw 통계 계산을 위해 bid_prtcpt_psbl_rgns / bid_license_limits 와 LEFT JOIN 후
+# STRING_AGG(DISTINCT ... ORDER BY ...) 로 정렬된 결정적 문자열을 만들어
+# 프론트엔드가 보내는 정렬된 query string 과 1:1 매칭한다.
+_NOTE_GROUPS_CTE = """
+    note_groups AS (
+        SELECT
+            n.bid_ntce_no,
+            n.bid_ntce_ord,
+            n.openg_dt,
+            n.presmpt_prce,
+            n.data->>'bidNtceNm' AS bid_ntce_nm,
+            n.data->>'cntrctCnclsMthdNm' AS contract_method,
+            budget_bucket(n.presmpt_prce) AS budget_bucket,
+            COALESCE((
+                SELECT STRING_AGG(DISTINCT r.prtcpt_psbl_rgn_nm, ', ' ORDER BY r.prtcpt_psbl_rgn_nm)
+                FROM bid_prtcpt_psbl_rgns r
+                WHERE r.bid_ntce_no = n.bid_ntce_no
+                  AND r.prtcpt_psbl_rgn_nm IS NOT NULL
+                  AND r.prtcpt_psbl_rgn_nm <> ''
+            ), '') AS region,
+            COALESCE((
+                SELECT STRING_AGG(DISTINCT industry_name, ', ' ORDER BY industry_name)
+                FROM (
+                    SELECT
+                        CASE
+                            WHEN ll.lcns_lmt_nm IS NOT NULL AND ll.lcns_lmt_nm <> ''
+                                -- bid_data_service.py 의 rsplit('/', 1)[0] 와 동일:
+                                -- '/' 가 있으면 마지막 '/' 이후를 제거, 없으면 그대로.
+                                THEN REGEXP_REPLACE(ll.lcns_lmt_nm, '/[^/]*$', '')
+                            WHEN ll.permsn_indstryty_list IS NOT NULL AND ll.permsn_indstryty_list <> ''
+                                THEN ll.permsn_indstryty_list
+                            ELSE NULL
+                        END AS industry_name
+                    FROM bid_license_limits ll
+                    WHERE ll.bid_ntce_no = n.bid_ntce_no
+                ) sub
+                WHERE industry_name IS NOT NULL AND industry_name <> ''
+            ), '') AS industry,
+            COALESCE((
+                SELECT STRING_AGG(DISTINCT f, ', ' ORDER BY f)
+                FROM bid_license_limits ll,
+                     UNNEST(string_to_array(
+                         REGEXP_REPLACE(COALESCE(ll.indstryty_mfrc_fld_list, ''), '[\\[\\]]', '', 'g'),
+                         '^'
+                     )) AS f
+                WHERE ll.bid_ntce_no = n.bid_ntce_no
+                  AND f <> ''
+                  AND f !~ '^[0-9]+$'
+            ), '') AS industry_field
+        FROM bid_notices n
+        WHERE EXISTS (
+            SELECT 1 FROM bid_reserve_prices rp
+            WHERE rp.bid_ntce_no = n.bid_ntce_no
+              AND rp.bid_ntce_ord = n.bid_ntce_ord
+              AND rp.fetched_at >= NOW() - INTERVAL '60 days'
+        )
+    )
+"""
+
+
 def _raw_filter_clause(keys: tuple[str, ...]) -> str:
-    """raw bid_reserve_prices+bid_notices 에 grouping key 를 적용하는 WHERE 절."""
+    """note_groups CTE 의 합성 컬럼들에 grouping key 를 적용하는 WHERE 절."""
     return " AND ".join(
         f"COALESCE({_KEY_TO_RAW_COL[k]}, '') = :{k}" for k in keys
     )
@@ -94,10 +156,11 @@ async def _compute_group_stats(
     fallback 단계마다 raw 에서 PERCENTILE_CONT 로 직접 계산.
     """
     sql = f"""
-        WITH rates AS (
+        WITH {_NOTE_GROUPS_CTE},
+        rates AS (
             SELECT (rp.plnprc::numeric / NULLIF(rp.bssamt, 0)::numeric)::float AS reserve_rate
             FROM bid_reserve_prices rp
-            JOIN bid_notices n
+            JOIN note_groups n
                  ON n.bid_ntce_no = rp.bid_ntce_no
                 AND n.bid_ntce_ord = rp.bid_ntce_ord
             WHERE rp.plnprc IS NOT NULL
@@ -232,16 +295,17 @@ async def get_estimate_rate_distribution(
     bind: dict[str, object] = {"limit": limit}
     bind.update({k: values[k] for k in keys})
     items_sql = f"""
+        WITH {_NOTE_GROUPS_CTE}
         SELECT
             rp.bid_ntce_no,
             rp.bid_ntce_ord,
-            n.data->>'bidNtceNm' AS bid_ntce_nm,
+            n.bid_ntce_nm,
             n.openg_dt,
             rp.bssamt,
             rp.plnprc,
             (rp.plnprc::numeric / NULLIF(rp.bssamt, 0)::numeric)::float AS reserve_rate
         FROM bid_reserve_prices rp
-        JOIN bid_notices n
+        JOIN note_groups n
              ON n.bid_ntce_no = rp.bid_ntce_no
             AND n.bid_ntce_ord = rp.bid_ntce_ord
         WHERE rp.plnprc IS NOT NULL

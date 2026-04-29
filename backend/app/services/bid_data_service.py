@@ -206,7 +206,8 @@ class BidDataService:
         if notices:
             bid_nos = list({n.bid_ntce_no for n in notices})
 
-            # 참가가능지역
+            # 참가가능지역 — sort + dedup 으로 결정적 직렬화
+            # (estimate_rate 그룹 키와 동일한 형태여야 매칭됨)
             rgn_query = select(
                 BidPrtcptPsblRgn.bid_ntce_no,
                 BidPrtcptPsblRgn.prtcpt_psbl_rgn_nm,
@@ -221,9 +222,9 @@ class BidDataService:
                 if row[1]:
                     rgn_map.setdefault(row[0], []).append(row[1])
             for k in rgn_map:
-                rgn_map[k] = list(dict.fromkeys(rgn_map[k]))
+                rgn_map[k] = sorted(set(rgn_map[k]))
 
-            # 면허제한명 + 허용업종목록 + 주력분야
+            # 면허제한명 + 허용업종목록 + 주력분야 — sort + dedup 으로 결정적 직렬화
             lic_query = select(
                 BidLicenseLimit.bid_ntce_no,
                 BidLicenseLimit.lcns_lmt_nm,
@@ -252,9 +253,9 @@ class BidDataService:
                     for f in fields:
                         mfrc_map.setdefault(bid_no, []).append(f)
             for k in lic_map:
-                lic_map[k] = list(dict.fromkeys(lic_map[k]))
+                lic_map[k] = sorted(set(lic_map[k]))
             for k in mfrc_map:
-                mfrc_map[k] = list(dict.fromkeys(mfrc_map[k]))
+                mfrc_map[k] = sorted(set(mfrc_map[k]))
 
             for notice in notices:
                 data = dict(notice.data)
