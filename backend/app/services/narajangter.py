@@ -16,11 +16,47 @@ from app.schemas.bid import (
 logger = logging.getLogger(__name__)
 
 
+class RateLimitError(Exception):
+    """나라장터 API rate limit (HTTP 429) 발생 시 raise.
+
+    호출자에서 backoff/retry/배치 중단 결정에 사용.
+    """
+
+
 class NaraJangterService:
     """Service for interacting with 나라장터 API."""
 
     MAX_PAGE_SIZE = 999
     DEFAULT_TIMEOUT_SECONDS = 30.0
+
+    def __init__(self) -> None:
+        # 일일 호출 한도 (HTTP 429) 초과 시 V2 → V3 → V4 로 순차 로테이션.
+        # 모든 키 소진되면 RateLimitError. 24시간 후 키 한도가 리셋되면 다시 처음부터.
+        self._service_keys: List[str] = [
+            k
+            for k in (
+                settings.NARAJANGTER_SERVICE_KEY,
+                settings.NARAJANGTER_SERVICE_KEY_V2,
+                settings.NARAJANGTER_SERVICE_KEY_V3,
+                settings.NARAJANGTER_SERVICE_KEY_V4,
+            )
+            if k
+        ]
+        self._active_key_idx: int = 0
+
+    def _active_key(self) -> str:
+        return self._service_keys[self._active_key_idx]
+
+    def _rotate_key(self) -> bool:
+        """다음 키로 전환. 더 이상 사용 가능한 키가 없으면 False."""
+        if self._active_key_idx + 1 >= len(self._service_keys):
+            return False
+        self._active_key_idx += 1
+        logger.warning(
+            f"narajangter: rate limited, rotating to key index {self._active_key_idx}"
+            f"/{len(self._service_keys) - 1}"
+        )
+        return True
 
     BASE_CNST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
     BASE_SERV_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
@@ -89,7 +125,7 @@ class NaraJangterService:
             "numOfRows": params.numOfRows,
             "pageNo": params.pageNo,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
         logger.info(f"NaraJangterService.search_bids called with params: {query_params}")
 
@@ -155,7 +191,7 @@ class NaraJangterService:
             "numOfRows": 1,
             "pageNo": 1,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
 
         logger.info(f"get_bid_notice_by_no called for {bidNtceNo}, type={bid_type}")
@@ -192,7 +228,7 @@ class NaraJangterService:
             "numOfRows": 1,
             "pageNo": 1,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
 
         target_url = self.CNSTWK_BSSAMT_URL
@@ -254,7 +290,7 @@ class NaraJangterService:
             "pageNo": pageNo,
             "numOfRows": numOfRows,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
         logger.info(f"get_prtcpt_psbl_rgn_by_date: {inqryBgnDt} ~ {inqryEndDt}, page={pageNo}")
 
@@ -285,7 +321,7 @@ class NaraJangterService:
             "pageNo": 1,
             "numOfRows": self.MAX_PAGE_SIZE,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
         logger.info(f"get_prtcpt_psbl_rgn_by_bid: {bidNtceNo}-{bidNtceOrd}")
 
@@ -318,7 +354,7 @@ class NaraJangterService:
             "pageNo": pageNo,
             "numOfRows": numOfRows,
             "type": "json",
-            "ServiceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "ServiceKey": self._active_key(),
         }
         logger.info(f"get_license_limit_by_date: {inqryBgnDt} ~ {inqryEndDt}, page={pageNo}")
 
@@ -344,7 +380,7 @@ class NaraJangterService:
     ) -> List[BidResultItem]:
         """개찰결과 조회"""
         query_params = {
-            "serviceKey": settings.NARAJANGTER_SERVICE_KEY,
+            "serviceKey": self._active_key(),
             "pageNo": pageNo,
             "numOfRows": numOfRows,
             "bidNtceNo": bidNtceNo,
@@ -393,33 +429,47 @@ class NaraJangterService:
         # inqryDiv=2 (개찰일 기준) + 개찰일 당일 윈도우.
         # bidNtceNo 필터를 server-side 적용하려면 inqryDiv=2 + 개찰일 범위가 필수.
         ymd = "".join(c for c in openg_dt if c.isdigit())[:8]
-        query_params = {
-            "serviceKey": settings.NARAJANGTER_SERVICE_KEY,
-            "pageNo": 1,
-            "numOfRows": 20,
-            "type": "json",
-            "inqryDiv": 2,
-            "inqryBgnDt": f"{ymd}0000",
-            "inqryEndDt": f"{ymd}2359",
-            "bidNtceNo": bidNtceNo,
-        }
-        if bidNtceOrd:
-            query_params["bidNtceOrd"] = bidNtceOrd
         logger.info(
             f"get_reserve_price: bidNtceNo={bidNtceNo}, type={bid_type}, ymd={ymd}"
         )
 
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
-            try:
-                response = await client.get(target_url, params=query_params)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code in (404, 429):
-                    logger.warning(
-                        f"get_reserve_price: HTTP {e.response.status_code} for {bidNtceNo}"
-                    )
-                    return None
-                raise
+            # 429 발생 시 다음 키로 로테이션하여 재시도. 모든 키 소진 시 RateLimitError.
+            while True:
+                query_params = {
+                    "serviceKey": self._active_key(),
+                    "pageNo": 1,
+                    "numOfRows": 20,
+                    "type": "json",
+                    "inqryDiv": 2,
+                    "inqryBgnDt": f"{ymd}0000",
+                    "inqryEndDt": f"{ymd}2359",
+                    "bidNtceNo": bidNtceNo,
+                }
+                if bidNtceOrd:
+                    query_params["bidNtceOrd"] = bidNtceOrd
+                try:
+                    response = await client.get(target_url, params=query_params)
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:
+                        logger.warning(
+                            f"get_reserve_price: HTTP 429 on key idx "
+                            f"{self._active_key_idx} for {bidNtceNo}"
+                        )
+                        if self._rotate_key():
+                            continue
+                        raise RateLimitError(
+                            f"all {len(self._service_keys)} keys exhausted "
+                            f"(rate limited on {bidNtceNo})"
+                        ) from e
+                    if e.response.status_code == 404:
+                        logger.warning(
+                            f"get_reserve_price: HTTP 404 for {bidNtceNo}"
+                        )
+                        return None
+                    raise
 
             items_data, _ = self._safe_parse_response(response, f"get_reserve_price({bidNtceNo})")
             if not items_data:

@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bidding_db"
     
     # API Keys
+    # 일일 호출 한도 초과 시 HTTP 429 → 다음 키로 자동 로테이션 (24h 후 V1 부터 재시도)
     NARAJANGTER_SERVICE_KEY: str
+    NARAJANGTER_SERVICE_KEY_V2: str = ""
+    NARAJANGTER_SERVICE_KEY_V3: str = ""
+    NARAJANGTER_SERVICE_KEY_V4: str = ""
     
     # Security
     SECRET_KEY: str

@@ -18,7 +18,7 @@ from sqlalchemy import and_, exists, func, select, tuple_
 from app.db.database import AsyncSessionLocal
 from app.models.bid import BidBasisAmount, BidNotice, BidReservePrice
 from app.services.bid_data_service import bid_data_service
-from app.services.narajangter import narajangter_service
+from app.services.narajangter import RateLimitError, narajangter_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,8 @@ async def fetch_reserve_price_with_fallback(
     primary = hint_type if hint_type in ("cnstwk", "servc") else "cnstwk"
     secondary = "servc" if primary == "cnstwk" else "cnstwk"
 
+    # RateLimitError 는 호출자(backfill loop)로 그대로 전파한다.
+    # secondary 시도는 원천 None (404/empty) 인 경우에만 의미가 있다.
     item = await narajangter_service.get_reserve_price(
         bidNtceNo=bid_ntce_no,
         openg_dt=openg_dt,
@@ -152,6 +154,7 @@ async def backfill_reserve_prices(
     # None 응답이어도 cursor 가 진행되므로 무한루프 없이 범위 전체를 시도한다.
     last_cursor: Optional[tuple[str, str, str]] = None
     last_progress_log = 0
+    aborted_by_rate_limit = False
     while True:
         if max_calls is not None and fetched >= max_calls:
             logger.info("reserve_price backfill: max_calls reached")
@@ -182,12 +185,22 @@ async def backfill_reserve_prices(
                         f"reserve_price backfill progress: fetched={fetched}, saved={saved}"
                     )
                     last_progress_log = fetched
+            except RateLimitError as exc:
+                # narajangter 가 모든 키를 자동 로테이션 시도 후 raise → 24h 후 재시도 외엔 방법 없음.
+                # 즉시 배치 abort. cursor 미진행 → 다음 구동에서 동일 target 재시도 가능.
+                errors += 1
+                logger.error(f"reserve_price backfill: aborting (all keys exhausted): {exc}")
+                aborted_by_rate_limit = True
+                break
             except Exception as exc:
                 errors += 1
                 logger.warning(
                     f"reserve_price backfill failed {bid_no}-{bid_ord} ({bid_type}): {exc}"
                 )
             await asyncio.sleep(inter_call_sleep)
+
+        if aborted_by_rate_limit:
+            break
 
         # 다음 batch 를 위해 cursor 를 마지막 row 로 갱신.
         # saved 여부와 무관하게 진행하므로 일시 장애에도 더 오래된 row 가 시도된다.
@@ -196,5 +209,6 @@ async def backfill_reserve_prices(
 
     logger.info(
         f"reserve_price backfill complete: fetched={fetched}, saved={saved}, errors={errors}"
+        f"{', aborted_by_rate_limit=True' if aborted_by_rate_limit else ''}"
     )
     return {"fetched": fetched, "saved": saved, "errors": errors}
