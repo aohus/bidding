@@ -22,6 +22,7 @@ const DEFAULT_RESERVE_RATE = 1.0;
 const RESERVE_RATE_MIN = 0.5;
 const RESERVE_RATE_MAX = 1.5;
 const RESERVE_RATE_DELTA = 0.03;
+const RESERVE_RATE_DECIMALS = 5;
 const DEFAULT_LOWER_LIMIT_RATE = 87.745;
 const DEFAULT_MARGIN_WON = 0;
 
@@ -67,7 +68,8 @@ function sanitizeReserveRate(value: number | undefined): number {
   if (value == null || !isFinite(value) || value <= 0) {
     return DEFAULT_RESERVE_RATE;
   }
-  return Math.min(Math.max(value, RESERVE_RATE_MIN), RESERVE_RATE_MAX);
+  const clamped = Math.min(Math.max(value, RESERVE_RATE_MIN), RESERVE_RATE_MAX);
+  return Number(clamped.toFixed(RESERVE_RATE_DECIMALS));
 }
 
 function sanitizeMargin(value: number | undefined): number {

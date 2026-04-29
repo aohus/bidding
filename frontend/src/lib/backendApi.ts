@@ -318,7 +318,7 @@ class BackendApiService {
     if (params.presmptPrce != null && Number.isFinite(params.presmptPrce)) {
       url.searchParams.append('presmpt_prce', String(Math.trunc(params.presmptPrce)));
     }
-    if (params.prefer) url.searchParams.append('prefer', params.prefer);
+    url.searchParams.append('prefer', params.prefer ?? 'median');
 
     const response = await this.authFetch(url.toString(), {
       headers: this.getAuthHeaders(),

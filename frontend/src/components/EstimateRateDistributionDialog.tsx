@@ -33,7 +33,7 @@ const DEFAULT_RATE_DOMAIN: PlotDomain = {
   median: 1.0,
 };
 
-function formatPct(value: number | null | undefined, digits = 2): string {
+function formatPct(value: number | null | undefined, digits = 3): string {
   if (value == null || !Number.isFinite(value)) return '-';
   return `${(value * 100).toFixed(digits)}%`;
 }

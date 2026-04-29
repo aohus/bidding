@@ -45,6 +45,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
         industryField: bid.indstrytyMfrcFldListNms,
         contractMethod: bid.cntrctCnclsMthdNm,
         presmptPrce: Number.isFinite(presmptPrce) && presmptPrce > 0 ? presmptPrce : undefined,
+        prefer: 'median',
       })
       .then((res) => {
         if (cancelled) return;
@@ -98,6 +99,8 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
   const handleBidCompletedWithoutPrice = () => {
     handleSaveBookmark('bid_completed');
   };
+
+  const formatPct = (value: number, digits = 3) => `${(value * 100).toFixed(digits)}%`;
 
   if (!bid) return null;
 
@@ -335,10 +338,10 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
                           </button>
                         )}
                       </div>
-                      <p className="font-bold text-gray-800">{(result.expectedReserveRate * 100).toFixed(2)}%</p>
+                      <p className="font-bold text-gray-800">{formatPct(result.expectedReserveRate)}</p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">
                         {reserveRate && reserveRate.sampleSize > 0
-                          ? `유사 공고 ${reserveRate.sampleSize}건 평균`
+                          ? `유사 공고 ${reserveRate.sampleSize}건 중앙값 기준`
                           : '유사 공고 표본 부족 (100% 가정)'}
                       </p>
                     </div>

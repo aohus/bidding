@@ -191,6 +191,17 @@ describe('calculateOptimalBidPrice (새 공식)', () => {
       expect(result.expectedReserveRate).toBe(0.985);
     });
 
+    it('expectedReserveRate는 퍼센트 소수 셋째자리 기준으로 반올림 적용', () => {
+      const result = calculateOptimalBidPrice({
+        ...defaultInput(),
+        expectedReserveRate: 0.9987654,
+      });
+      if (!result.ok) throw new Error('expected ok');
+
+      expect(result.expectedReserveRate).toBe(0.99877);
+      expect(result.expectedPresumedPrice).toBe(Math.round(1_000_000_000 * 0.99877));
+    });
+
     it('expectedReserveRate=0.97일 때 estimatedLowerBound 정확히 계산', () => {
       const result = calculateOptimalBidPrice({
         ...defaultInput(),

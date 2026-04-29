@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bids/estimate-rate", tags=["Estimate Rate"])
 
 MIN_SAMPLE_SIZE = 10
+RATE_DECIMALS = 5
 ReserveRateSource = Literal["group_avg", "group_median", "fallback_default"]
 
 
@@ -204,6 +205,12 @@ async def _resolve_matched_group(
     return None, None
 
 
+def _round_rate(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    return round(float(value), RATE_DECIMALS)
+
+
 @router.get("", response_model=EstimateRateResponse)
 async def get_estimate_rate(
     region: Optional[str] = Query(None, description="참가가능지역명(prtcptPsblRgnNms)"),
@@ -211,7 +218,7 @@ async def get_estimate_rate(
     industry_field: Optional[str] = Query(None, description="주력분야(indstrytyMfrcFldListNms)"),
     contract_method: Optional[str] = Query(None, description="계약체결방법명"),
     presmpt_prce: Optional[int] = Query(None, ge=0, description="추정가격 (원)"),
-    prefer: Literal["avg", "median"] = Query("avg"),
+    prefer: Literal["avg", "median"] = Query("median"),
     db: AsyncSession = Depends(get_db),
 ) -> EstimateRateResponse:
     """비슷한 공고 그룹의 사정율을 반환 (raw 데이터 기반 PERCENTILE_CONT).
@@ -251,13 +258,14 @@ async def get_estimate_rate(
             sample_size=0,
             matched_keys=[],
         )
+    rounded_rate = _round_rate(rate)
     return EstimateRateResponse(
-        expected_reserve_rate=float(rate),
+        expected_reserve_rate=rounded_rate if rounded_rate is not None else 1.0,
         source="group_median" if prefer == "median" else "group_avg",
         sample_size=int(stats["total_n"]),
         matched_keys=list(keys),
-        p25=stats["p25"],
-        p75=stats["p75"],
+        p25=_round_rate(stats["p25"]),
+        p75=_round_rate(stats["p75"]),
     )
 
 
@@ -320,6 +328,9 @@ async def get_estimate_rate_distribution(
     result = await db.execute(text(items_sql), bind)
     rows: list[DistributionItem] = []
     for r in result.mappings():
+        rounded = _round_rate(r["reserve_rate"])
+        if rounded is None:
+            continue
         rows.append(
             DistributionItem(
                 bid_ntce_no=r["bid_ntce_no"],
@@ -327,16 +338,16 @@ async def get_estimate_rate_distribution(
                 openg_dt=r["openg_dt"],
                 bssamt=r["bssamt"],
                 plnprc=r["plnprc"],
-                reserve_rate=float(r["reserve_rate"]),
+                reserve_rate=rounded,
             )
         )
 
     return DistributionResponse(
         matched_keys=list(keys),
         sample_size=int(stats["total_n"]),
-        avg_rate=stats["avg_rate"],
-        median_rate=stats["median_rate"],
-        p25=stats["p25"],
-        p75=stats["p75"],
+        avg_rate=_round_rate(stats["avg_rate"]),
+        median_rate=_round_rate(stats["median_rate"]),
+        p25=_round_rate(stats["p25"]),
+        p75=_round_rate(stats["p75"]),
         items=rows,
     )
