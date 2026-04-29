@@ -369,29 +369,45 @@ class NaraJangterService:
     async def get_reserve_price(
         self,
         bidNtceNo: str,
+        openg_dt: str,
         bid_type: str = "cnstwk",
         bidNtceOrd: Optional[str] = None,
     ) -> Optional[dict]:
         """예정가격(plnprc) 상세 정보를 1건 조회합니다.
 
+        Args:
+            bidNtceNo: 입찰공고번호
+            openg_dt: 개찰일시 (YYYYMMDD~YYYYMMDDHHMM, inqryDiv=2 의 날짜 범위로 사용)
+            bid_type: cnstwk/servc
+            bidNtceOrd: 입찰차수
+
         Returns: 첫 페이지 첫 항목 raw dict (없으면 None).
         plnprc, bssamt, bsisPlnprc, rlOpengDt 등이 포함됨.
+        복수예가 공고는 보통 15 row 반환되며 plnprc/bssamt 는 동일.
         """
         target_url = (
             self.SERVC_RESERVE_PRICE_URL
             if bid_type and bid_type.lower() in ("servc", "service", "용역")
             else self.CNSTWK_RESERVE_PRICE_URL
         )
+        # inqryDiv=2 (개찰일 기준) + 개찰일 당일 윈도우.
+        # bidNtceNo 필터를 server-side 적용하려면 inqryDiv=2 + 개찰일 범위가 필수.
+        ymd = "".join(c for c in openg_dt if c.isdigit())[:8]
         query_params = {
             "serviceKey": settings.NARAJANGTER_SERVICE_KEY,
             "pageNo": 1,
-            "numOfRows": 10,
-            "bidNtceNo": bidNtceNo,
+            "numOfRows": 20,
             "type": "json",
+            "inqryDiv": 2,
+            "inqryBgnDt": f"{ymd}0000",
+            "inqryEndDt": f"{ymd}2359",
+            "bidNtceNo": bidNtceNo,
         }
         if bidNtceOrd:
             query_params["bidNtceOrd"] = bidNtceOrd
-        logger.info(f"get_reserve_price: bidNtceNo={bidNtceNo}, type={bid_type}")
+        logger.info(
+            f"get_reserve_price: bidNtceNo={bidNtceNo}, type={bid_type}, ymd={ymd}"
+        )
 
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
             try:

@@ -463,23 +463,20 @@ class BidDataService:
         self,
         db: AsyncSession,
         limit: int = 10,
-    ) -> List[tuple[str, str, str]]:
-        """예정가격(plnprc) 미수집 + 개찰 완료 공고 N건을 반환합니다.
+    ) -> List[tuple[str, str, str, str]]:
+        """예정가격(plnprc) 미수집 + 개찰 완료 + 복수예가 공고 N건을 반환합니다.
 
-        Returns: [(bid_ntce_no, bid_ntce_ord, bid_type), ...]
+        Returns: [(bid_ntce_no, bid_ntce_ord, bid_type, openg_dt), ...]
         bid_type 은 BidBasisAmount 에 저장된 값을 사용 (없으면 'cnstwk' default).
+        복수예가가 아닌 공고는 plnprc 가 공개되지 않으므로 제외.
         """
         now_yyyymmddhhmm = datetime.now().strftime("%Y%m%d%H%M")
-        # 개찰 완료 + reserve_price 없음
-        sub_existing = (
-            select(BidReservePrice.bid_ntce_no, BidReservePrice.bid_ntce_ord)
-            .scalar_subquery()
-        )
         result = await db.execute(
             select(
                 BidNotice.bid_ntce_no,
                 BidNotice.bid_ntce_ord,
                 func.coalesce(BidBasisAmount.bid_type, "cnstwk"),
+                BidNotice.openg_dt,
             )
             .outerjoin(
                 BidBasisAmount,
@@ -492,6 +489,7 @@ class BidDataService:
                 BidNotice.openg_dt.isnot(None),
                 BidNotice.openg_dt != "",
                 BidNotice.openg_dt < now_yyyymmddhhmm,
+                BidNotice.data["prearngPrceDcsnMthdNm"].astext.like("%복수예가%"),
                 ~exists().where(
                     and_(
                         BidReservePrice.bid_ntce_no == BidNotice.bid_ntce_no,
@@ -502,7 +500,7 @@ class BidDataService:
             .order_by(BidNotice.openg_dt.desc())
             .limit(limit)
         )
-        return [(r[0], r[1], r[2]) for r in result.all()]
+        return [(r[0], r[1], r[2], r[3]) for r in result.all()]
 
     async def save_reserve_price(
         self,
@@ -551,38 +549,6 @@ class BidDataService:
         await db.execute(stmt)
         await db.commit()
         return True
-
-    async def mark_reserve_price_unavailable(
-        self,
-        db: AsyncSession,
-        bid_ntce_no: str,
-        bid_ntce_ord: str,
-    ) -> None:
-        """공사/용역 두 endpoint 모두 빈 응답인 공고를 negative cache 로 마킹.
-
-        bid_type='unknown' sentinel row 를 저장하여 NOT EXISTS 로 재시도 차단.
-        plnprc/bssamt 는 NULL 이라 estimate_rate 통계엔 영향 없음.
-        물품/외자 등 cnstwk/servc 외 카테고리 공고가 매 cycle 재시도되어
-        API quota 가 낭비되는 문제를 막는다.
-        """
-        stmt = (
-            insert(BidReservePrice)
-            .values(
-                bid_ntce_no=bid_ntce_no,
-                bid_ntce_ord=bid_ntce_ord or "000",
-                bid_type="unknown",
-                bssamt=None,
-                plnprc=None,
-                bsis_plnprc=None,
-                rl_openg_dt=None,
-                data={"_no_data": True},
-            )
-            .on_conflict_do_nothing(
-                index_elements=["bid_ntce_no", "bid_ntce_ord", "bid_type"],
-            )
-        )
-        await db.execute(stmt)
-        await db.commit()
 
     async def has_synced_data(
         self, db: AsyncSession, start_date: str, end_date: str

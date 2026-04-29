@@ -30,6 +30,7 @@ async def fetch_reserve_price_with_fallback(
     bid_ntce_no: str,
     bid_ntce_ord: Optional[str],
     hint_type: str,
+    openg_dt: str,
 ) -> tuple[Optional[dict], str, int]:
     """hint_type 우선 시도, None 응답이면 다른 type 자동 시도.
 
@@ -41,14 +42,20 @@ async def fetch_reserve_price_with_fallback(
     secondary = "servc" if primary == "cnstwk" else "cnstwk"
 
     item = await narajangter_service.get_reserve_price(
-        bidNtceNo=bid_ntce_no, bid_type=primary, bidNtceOrd=bid_ntce_ord or None
+        bidNtceNo=bid_ntce_no,
+        openg_dt=openg_dt,
+        bid_type=primary,
+        bidNtceOrd=bid_ntce_ord or None,
     )
     if item is not None:
         return item, primary, 1
 
     await asyncio.sleep(DEFAULT_INTER_CALL_SLEEP)
     item = await narajangter_service.get_reserve_price(
-        bidNtceNo=bid_ntce_no, bid_type=secondary, bidNtceOrd=bid_ntce_ord or None
+        bidNtceNo=bid_ntce_no,
+        openg_dt=openg_dt,
+        bid_type=secondary,
+        bidNtceOrd=bid_ntce_ord or None,
     )
     return item, secondary, 2
 
@@ -91,6 +98,12 @@ async def _list_pending_in_range(
                     )
                 ),
             )
+        )
+        # 복수예가 공고만 — 단일예가는 bssamt 가 빈 값, 비예가는 plnprc 자체가 없어
+        # 사정율(plnprc/bssamt) 계산이 불가하므로 처음부터 제외.
+        # LIKE 로 미래 표기 변형(예: '복수예가제') 까지 커버.
+        query = query.where(
+            BidNotice.data["prearngPrceDcsnMthdNm"].astext.like("%복수예가%")
         )
         if cursor is not None:
             last_dt, last_no, last_ord = cursor
@@ -150,12 +163,12 @@ async def backfill_reserve_prices(
             logger.info("reserve_price backfill: no more pending targets, done")
             break
 
-        for bid_no, bid_ord, bid_type, _openg_dt in targets:
+        for bid_no, bid_ord, bid_type, openg_dt in targets:
             if max_calls is not None and fetched >= max_calls:
                 break
             try:
                 item, used_type, calls_made = await fetch_reserve_price_with_fallback(
-                    bid_no, bid_ord, bid_type
+                    bid_no, bid_ord, bid_type, openg_dt
                 )
                 fetched += calls_made
                 if item is not None:
@@ -164,13 +177,6 @@ async def backfill_reserve_prices(
                             db, bid_no, bid_ord or "000", used_type, item
                         ):
                             saved += 1
-                else:
-                    # 두 endpoint 모두 빈 응답 → 물품/외자 등 공사/용역 외 카테고리.
-                    # sentinel 저장으로 다음 cycle 재시도 차단.
-                    async with AsyncSessionLocal() as db:
-                        await bid_data_service.mark_reserve_price_unavailable(
-                            db, bid_no, bid_ord or "000"
-                        )
                 if fetched - last_progress_log >= 20:
                     logger.info(
                         f"reserve_price backfill progress: fetched={fetched}, saved={saved}"

@@ -102,23 +102,18 @@ class BidDataSyncScheduler:
 
         from app.services.reserve_price_backfill import fetch_reserve_price_with_fallback
 
-        for bid_no, bid_ord, bid_type in targets:
+        for bid_no, bid_ord, bid_type, openg_dt in targets:
             if api_calls >= self.MAX_API_CALLS_PER_RUN:
                 break
             try:
                 item, used_type, calls_made = await fetch_reserve_price_with_fallback(
-                    bid_no, bid_ord, bid_type
+                    bid_no, bid_ord, bid_type, openg_dt
                 )
                 api_calls += calls_made
                 if item is not None:
                     async with AsyncSessionLocal() as db:
                         await bid_data_service.save_reserve_price(
                             db, bid_no, bid_ord or "000", used_type, item
-                        )
-                else:
-                    async with AsyncSessionLocal() as db:
-                        await bid_data_service.mark_reserve_price_unavailable(
-                            db, bid_no, bid_ord or "000"
                         )
             except Exception as exc:
                 logger.warning(
