@@ -44,15 +44,12 @@ class BidDataSyncScheduler:
     MAX_BACKFILL_PER_RUN = 5
     MAX_API_CALLS_PER_RUN = 80
     RESERVE_PRICE_BATCH = 10  # 사이클당 reserve_price fetch 건수
-    ESTIMATE_RATE_REFRESH_WEEKDAY = 6  # Sunday (Mon=0)
-    ESTIMATE_RATE_REFRESH_HOUR = 3  # KST 03:00
 
     def __init__(self):
         self.is_running = False
         self._sync_lock = asyncio.Lock()
         self._last_alert_at: datetime | None = None
         self._failed_windows: list[str] = []
-        self._last_estimate_refresh_at: datetime | None = None
 
     async def start(self):
         if self.is_running:
@@ -90,8 +87,6 @@ class BidDataSyncScheduler:
             if self._failed_windows:
                 await self._send_failure_alert()
 
-        await self._maybe_refresh_estimate_rate_stats()
-
     async def _sync_reserve_prices(self, api_calls: int) -> int:
         """개찰 완료 공고에 대해 예정가격(plnprc) 정보를 사이클당 N건 fetch."""
         if api_calls >= self.MAX_API_CALLS_PER_RUN:
@@ -126,31 +121,6 @@ class BidDataSyncScheduler:
                 )
             await asyncio.sleep(0.5)
         return api_calls
-
-    async def _maybe_refresh_estimate_rate_stats(self) -> None:
-        """매주 일요일 새벽 mv_estimate_rate_stats 를 REFRESH 합니다."""
-        from sqlalchemy import text
-
-        now = datetime.now(KST)
-        if now.weekday() != self.ESTIMATE_RATE_REFRESH_WEEKDAY:
-            return
-        if now.hour < self.ESTIMATE_RATE_REFRESH_HOUR:
-            return
-        if self._last_estimate_refresh_at is not None:
-            since = (now - self._last_estimate_refresh_at).total_seconds()
-            if since < 6 * 24 * 3600:
-                return
-
-        try:
-            async with AsyncSessionLocal() as db:
-                await db.execute(
-                    text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_estimate_rate_stats")
-                )
-                await db.commit()
-            self._last_estimate_refresh_at = now
-            logger.info("mv_estimate_rate_stats refreshed")
-        except Exception as exc:
-            logger.error(f"estimate_rate_stats refresh failed: {exc}")
 
     async def _sync_recent_hours(self, api_calls: int) -> int:
         """최근 N시간을 시간별 윈도우로 동기화합니다."""

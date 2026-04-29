@@ -6,7 +6,6 @@ CLI 스크립트와 배포 시 startup 훅이 함께 사용합니다.
     1. `bid_notices.openg_dt` 가 [from, to] 범위인 공고 중
        `bid_reserve_prices` 미수집 row 를 batch 로 수집
     2. 각 row 별로 `narajangter.get_reserve_price()` 호출 → upsert
-    3. 완료 후 `REFRESH MATERIALIZED VIEW [CONCURRENTLY] mv_estimate_rate_stats`
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from sqlalchemy import and_, exists, func, select, text, tuple_
+from sqlalchemy import and_, exists, func, select, tuple_
 
 from app.db.database import AsyncSessionLocal
 from app.models.bid import BidBasisAmount, BidNotice, BidReservePrice
@@ -118,15 +117,12 @@ async def backfill_reserve_prices(
     *,
     max_calls: Optional[int] = None,
     inter_call_sleep: float = DEFAULT_INTER_CALL_SLEEP,
-    refresh_after: bool = True,
-    refresh_concurrently: bool = True,
 ) -> dict[str, int]:
-    """범위 내 reserve_price 를 모두 백필 후 mv 를 REFRESH 합니다.
+    """범위 내 reserve_price 를 모두 백필합니다.
 
     Args:
         window_from / window_to: YYYYMMDD 또는 YYYYMMDDHHMM (string compare)
         max_calls: API 호출 상한 (None=제한 없음)
-        refresh_after: 백필 후 mv 자동 REFRESH 여부
 
     Returns:
         {"fetched": N, "saved": M, "errors": K}
@@ -185,23 +181,7 @@ async def backfill_reserve_prices(
         last_target = targets[-1]
         last_cursor = (last_target[3], last_target[0], last_target[1])
 
-    if refresh_after:
-        await refresh_estimate_rate_stats(concurrently=refresh_concurrently)
-
     logger.info(
         f"reserve_price backfill complete: fetched={fetched}, saved={saved}, errors={errors}"
     )
     return {"fetched": fetched, "saved": saved, "errors": errors}
-
-
-async def refresh_estimate_rate_stats(*, concurrently: bool = True) -> None:
-    """mv_estimate_rate_stats 를 REFRESH 합니다."""
-    sql = (
-        "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_estimate_rate_stats"
-        if concurrently
-        else "REFRESH MATERIALIZED VIEW mv_estimate_rate_stats"
-    )
-    async with AsyncSessionLocal() as db:
-        await db.execute(text(sql))
-        await db.commit()
-    logger.info(f"mv_estimate_rate_stats refreshed (concurrently={concurrently})")
