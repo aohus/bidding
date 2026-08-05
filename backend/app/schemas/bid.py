@@ -83,6 +83,7 @@ class BidApiResponse(BaseModel):
     totalCount: int
     numOfRows: int
     pageNo: int
+    sync_in_progress: bool = False
 
 
 class BidAValueItem(BaseModel):

@@ -208,9 +208,36 @@ class BidDataSyncScheduler:
 
         return api_calls
 
-    async def sync_window(self, window_start: str, window_end: str) -> None:
-        """외부 호출용: lock 포함 윈도우 동기화."""
+    async def sync_window(
+        self, window_start: str, window_end: str, force: bool = False
+    ) -> None:
+        """외부 호출용: lock 포함 윈도우 동기화.
+
+        일별 윈도우(YYYYMMDD2359)는 락 획득 후 이미 동기화되었는지 확인하여
+        중복 API 호출을 방지합니다(동시 요청 idempotency).
+
+        force=True 면 이미 완료로 기록된 날짜도 무조건 재수집합니다 —
+        공고 누락 복구용 resync 스크립트가 사용합니다.
+        """
         async with self._sync_lock:
+            if not force and window_end.endswith("2359"):
+                start_d = window_start[:8]
+                end_d = window_end[:8]
+                try:
+                    async with AsyncSessionLocal() as db:
+                        already = await bid_data_service.has_synced_data(
+                            db, start_d, end_d
+                        )
+                    if already:
+                        logger.info(
+                            f"sync_window skipped (already synced): "
+                            f"{window_start}~{window_end}"
+                        )
+                        return
+                except Exception as e:
+                    logger.warning(
+                        f"sync_window idempotency check failed: {e}"
+                    )
             await self._sync_window_internal(window_start, window_end)
 
     async def _sync_window_internal(

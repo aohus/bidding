@@ -122,8 +122,10 @@ async def resync_day(day: str) -> None:
     """실제 재동기화 (DB 필요)."""
     from app.services.bid_sync_scheduler import bid_sync_scheduler
 
-    # sync_window 는 data_sync_log 를 조회하지 않으므로 skip 없이 항상 수행된다.
-    await bid_sync_scheduler.sync_window(f"{day}0000", f"{day}2359")
+    # force=True 로 data_sync_log skip 로직을 우회해 항상 재수집한다.
+    await bid_sync_scheduler.sync_window(
+        f"{day}0000", f"{day}2359", force=True
+    )
     print(f"  완료 (data_sync_log 를 {day}0000~{day}2359 로 재마킹)")
 
 

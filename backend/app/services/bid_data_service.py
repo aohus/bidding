@@ -1,6 +1,8 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+
+KST = timezone(timedelta(hours=9))
 
 from sqlalchemy import BigInteger, and_, cast, exists, func, nullslast, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -565,10 +567,12 @@ class BidDataService:
     ) -> bool:
         """날짜 범위가 동기화되었는지 확인합니다.
 
-        각 날짜에 대해 일별 윈도우(YYYYMMDD0000~YYYYMMDD2359)가 존재해야
-        해당 날짜가 완전히 동기화된 것으로 판단합니다.
-        시간별 윈도우만 있는 경우는 부분 동기화로 간주합니다.
+        과거 날짜는 일별 윈도우(YYYYMMDD0000~YYYYMMDD2359) 존재로 판단합니다.
+        오늘(KST)은 일별 마커로는 신뢰할 수 없습니다 — 새 공고가 계속 등록되므로
+        시간별 freshness 검사가 필요합니다. 오늘이 포함된 범위는 항상 False를
+        반환하여, 호출자가 시간별 sync 경로로 처리하도록 강제합니다.
         """
+        today_str = datetime.now(KST).strftime("%Y%m%d")
         start_d = start_date[:8]
         end_d = end_date[:8]
 
@@ -576,6 +580,10 @@ class BidDataService:
             start_dt = datetime.strptime(start_d, "%Y%m%d")
             end_dt = datetime.strptime(end_d, "%Y%m%d")
         except ValueError:
+            return False
+
+        # 오늘 또는 미래 포함 시 시간별 freshness 필요 — 호출자에 위임
+        if end_d >= today_str:
             return False
 
         expected_days = (end_dt - start_dt).days + 1
@@ -589,6 +597,61 @@ class BidDataService:
         )
         synced_days = result.scalar() or 0
         return synced_days >= expected_days
+
+    async def get_missing_synced_days(
+        self, db: AsyncSession, start_date: str, end_date: str
+    ) -> List[str]:
+        """날짜 범위에서 일별 윈도우(YYYYMMDD2359)가 없는 일자 목록을 반환합니다.
+
+        오늘(KST)은 일별 마커가 있어도 항상 missing 으로 포함됩니다 —
+        호출자는 오늘에 한해 시간별 윈도우로 처리해야 합니다.
+        미래 날짜는 missing 에 포함하지 않습니다 (sync 대상 아님).
+        """
+        today_str = datetime.now(KST).strftime("%Y%m%d")
+        start_d = start_date[:8]
+        end_d = end_date[:8]
+
+        try:
+            start_dt = datetime.strptime(start_d, "%Y%m%d")
+            end_dt = datetime.strptime(end_d, "%Y%m%d")
+        except ValueError:
+            return []
+
+        result = await db.execute(
+            select(DataSyncLog.sync_timestamp).where(
+                DataSyncLog.sync_timestamp >= start_d + "0000",
+                DataSyncLog.sync_timestamp <= end_d + "0000",
+                DataSyncLog.window_end.like("%2359"),
+            )
+        )
+        synced_set = {row[0][:8] for row in result.all()}
+
+        missing: List[str] = []
+        current = start_dt
+        while current <= end_dt:
+            d = current.strftime("%Y%m%d")
+            if d > today_str:
+                break
+            if d == today_str or d not in synced_set:
+                missing.append(d)
+            current += timedelta(days=1)
+        return missing
+
+    async def is_today_hour_fresh(
+        self, db: AsyncSession, max_age_seconds: int = 3600
+    ) -> bool:
+        """현재 KST 시각의 시간별 윈도우가 max_age_seconds 이내 동기화됐는지 확인."""
+        now_kst = datetime.now(KST)
+        ts = now_kst.strftime("%Y%m%d%H") + "00"
+        end = now_kst.strftime("%Y%m%d%H") + "59"
+        entry = await self.get_sync_entry(db, ts, end)
+        if not entry or not entry.synced_at:
+            return False
+        synced = entry.synced_at
+        if synced.tzinfo is None:
+            synced = synced.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - synced).total_seconds()
+        return age < max_age_seconds
 
     async def get_sync_entry(
         self, db: AsyncSession, sync_timestamp: str, window_end: str

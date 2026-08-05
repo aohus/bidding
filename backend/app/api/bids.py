@@ -47,7 +47,22 @@ RESULT_RETRY_COOLDOWN_MINUTES = 10
 RESULT_ERROR_COOLDOWN_MINUTES = 3
 RESULT_API_PAGE_SIZE = 100
 RESULT_API_MAX_PAGES = 20
+SYNC_INLINE_MAX_DAYS = 3
+# 인라인 sync 가 요청을 무한정 붙잡지 않도록 하는 일자별 상한. 초과 시
+# 지금까지 수집된 DB 부분 결과로 폴백하고 sync_in_progress=True 로 응답한다.
+SYNC_INLINE_TIMEOUT_SECONDS = 60
 KST = ZoneInfo("Asia/Seoul")
+
+# create_task 로 띄운 백그라운드 작업의 강참조 보관용. 참조가 없으면
+# 이벤트 루프가 완료 전에 GC 로 수거해 작업이 조용히 죽을 수 있다.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    """백그라운드 코루틴을 GC-안전하게 실행한다."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 def _now_kst() -> datetime:
@@ -133,13 +148,15 @@ async def search_bids(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """입찰공고 검색 - DB 우선, API 폴백 (공고게시일시 div=1 기준만 동기화)
+    """입찰공고 검색 - DB 단일 경로 (sync 후 search_from_db).
 
-    API 호출 최소화 전략:
-    - 날짜별 동기화 상태를 추적 (div=1 공고게시일시 기준)
+    동기화 전략 (div=1 공고게시일시 기준):
     - synced → DB만 사용 (API 0회)
-    - not synced → API 호출 → 저장 → synced 마킹
-    - 개찰일시(div=2) 검색은 항상 DB에서 조회 (동기화된 데이터 활용)
+    - not synced & day_count ≤ SYNC_INLINE_MAX_DAYS
+        → 미동기화 일자만 동기 sync_window → DB 검색 (응답 일관성 보장)
+    - not synced & day_count > SYNC_INLINE_MAX_DAYS
+        → 백그라운드 sync + 현재 DB 부분 결과 (sync_in_progress=True)
+    - 개찰일시(div=2) 검색은 항상 DB에서 조회
     """
     logger.info(
         f"search_bids called by user: {current_user.username} with params: {search_params}"
@@ -169,48 +186,90 @@ async def search_bids(
                 db, search_params, current_user.user_id
             )
 
-        # 동기화 안됨 → 공사+용역 API 호출
-        api_params = BidSearchParams(
-            inqryDiv="1",
-            inqryBgnDt=search_params.inqryBgnDt,
-            inqryEndDt=search_params.inqryEndDt,
-            prtcptLmtRgnNm=search_params.prtcptLmtRgnNm,
-            indstrytyNm=search_params.indstrytyNm,
-            indstrytyCd=search_params.indstrytyCd,
-            presmptPrceBgn=search_params.presmptPrceBgn,
-            presmptPrceEnd=search_params.presmptPrceEnd,
-            bidClseExcpYn=search_params.bidClseExcpYn,
-            numOfRows=search_params.numOfRows,
-            pageNo=search_params.pageNo,
-        )
-        cnstwk_result = await narajangter_service.search_bids(
-            "contract", api_params
-        )
-        servc_result = await narajangter_service.search_bids(
-            "service", api_params
-        )
+        # 동기화 안됨 → 범위에 따라 분기
+        try:
+            start_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_dt = datetime.strptime(end_date, "%Y%m%d")
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid date format: {e}",
+            )
+        day_count = (end_dt - start_dt).days + 1
 
-        # 결과 병합 (중복 제거)
-        seen: set[str] = set()
-        merged_items = []
-        for item in list(cnstwk_result.items) + list(servc_result.items):
-            key = f"{item.bidNtceNo}-{item.bidNtceOrd}"
-            if key not in seen:
-                seen.add(key)
-                merged_items.append(item)
+        if day_count <= SYNC_INLINE_MAX_DAYS:
+            # 작은 범위: 미동기화 일자만 동기 sync_window 후 DB 검색
+            from app.services.bid_sync_scheduler import bid_sync_scheduler
 
-        result = BidApiResponse(
-            items=merged_items,
-            totalCount=len(merged_items),
-            numOfRows=api_params.numOfRows,
-            pageNo=api_params.pageNo,
+            try:
+                missing_days = await bid_data_service.get_missing_synced_days(
+                    db, start_date, end_date
+                )
+            except Exception as e:
+                logger.warning(f"get_missing_synced_days failed: {e}")
+                missing_days = [
+                    (start_dt + timedelta(days=i)).strftime("%Y%m%d")
+                    for i in range(day_count)
+                ]
+
+            today_str = _now_kst().strftime("%Y%m%d")
+            sync_incomplete = False
+            for d in missing_days:
+                try:
+                    if d == today_str:
+                        # 오늘: 일별 2359 마킹 금지 — 시간별 freshness 검사 후 시간별 sync
+                        try:
+                            is_fresh = await bid_data_service.is_today_hour_fresh(db)
+                        except Exception as e:
+                            logger.warning(f"is_today_hour_fresh failed: {e}")
+                            is_fresh = False
+                        if not is_fresh:
+                            hour_ts = _now_kst().strftime("%Y%m%d%H")
+                            await asyncio.wait_for(
+                                bid_sync_scheduler.sync_window(
+                                    hour_ts + "00", hour_ts + "59"
+                                ),
+                                timeout=SYNC_INLINE_TIMEOUT_SECONDS,
+                            )
+                    else:
+                        await asyncio.wait_for(
+                            bid_sync_scheduler.sync_window(
+                                d + "0000", d + "2359"
+                            ),
+                            timeout=SYNC_INLINE_TIMEOUT_SECONDS,
+                        )
+                except (RateLimitError, NaraJangterApiError) as e:
+                    # API 한도 소진/오류: 남은 일자 sync 중단, DB 부분 결과로 폴백
+                    logger.warning(
+                        f"inline sync aborted at {d} "
+                        f"({type(e).__name__}): {e}"
+                    )
+                    sync_incomplete = True
+                    break
+                except asyncio.TimeoutError:
+                    # 상한 초과: 요청을 더 붙잡지 않고 DB 부분 결과로 폴백
+                    logger.warning(
+                        f"inline sync timed out at {d} "
+                        f"(> {SYNC_INLINE_TIMEOUT_SECONDS}s), "
+                        f"falling back to partial DB results"
+                    )
+                    sync_incomplete = True
+                    break
+
+            result = await bid_data_service.search_from_db(
+                db, search_params, current_user.user_id
+            )
+            if sync_incomplete:
+                result.sync_in_progress = True
+            return result
+
+        # 큰 범위: 백그라운드 동기화 시작 + 현재 DB 결과(부분)에 sync_in_progress 표시
+        _spawn_background(_sync_date_range(start_date, end_date))
+
+        result = await bid_data_service.search_from_db(
+            db, search_params, current_user.user_id
         )
-
-        # 백그라운드에서 날짜별 전체 동기화 (scheduler 활용)
-        asyncio.create_task(
-            _sync_date_range(start_date, end_date, result)
-        )
-
+        result.sync_in_progress = True
         return result
     except HTTPException:
         raise
@@ -222,41 +281,33 @@ async def search_bids(
         )
 
 
-async def _sync_date_range(
-    start_date: str,
-    end_date: str,
-    initial_result: BidApiResponse | None = None,
-):
+async def _sync_date_range(start_date: str, end_date: str) -> None:
     """날짜 범위를 일별 윈도우로 동기화 (백그라운드).
 
     scheduler의 sync_window를 활용하여 공사+용역+지역+면허제한 모두 동기화.
+    오늘은 일별 마킹을 피하고 시간별 사이클(_sync_recent_hours)에 위임합니다.
     """
     from app.services.bid_sync_scheduler import bid_sync_scheduler
 
     try:
-        if initial_result and initial_result.items:
-            async with (await _get_session()) as db:
-                await bid_data_service.save_bid_notices(db, initial_result.items)
-
         start_dt = datetime.strptime(start_date[:8], "%Y%m%d")
         end_dt = datetime.strptime(end_date[:8], "%Y%m%d")
+        today_str = _now_kst().strftime("%Y%m%d")
         current = start_dt
 
         while current <= end_dt:
             d = current.strftime("%Y%m%d")
+            if d > today_str:
+                break
+            if d == today_str:
+                current += timedelta(days=1)
+                continue
             await bid_sync_scheduler.sync_window(d + "0000", d + "2359")
             current += timedelta(days=1)
             await asyncio.sleep(1)
 
     except Exception as e:
         logger.error(f"Background sync failed: {e}")
-
-
-async def _get_session():
-    """비동기 세션 팩토리 (백그라운드 작업용)"""
-    from app.db.database import AsyncSessionLocal
-
-    return AsyncSessionLocal()
 
 
 def _has_bssamt(item: BidAValueItem) -> bool:
@@ -509,7 +560,7 @@ async def trigger_sync(
     """
     from app.services.bid_sync_scheduler import bid_sync_scheduler
 
-    asyncio.create_task(
+    _spawn_background(
         bid_sync_scheduler.sync_recent_data(days=days, force=force)
     )
 
