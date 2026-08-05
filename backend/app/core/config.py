@@ -9,7 +9,9 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bidding_db"
-    
+    # SQLAlchemy echo. 운영에서 켜면 모든 SQL + 바인드 파라미터가 로그로 나간다.
+    SQL_ECHO: bool = False
+
     # API Keys
     # 일일 호출 한도 초과 시 HTTP 429 → 다음 키로 자동 로테이션 (24h 후 V1 부터 재시도)
     NARAJANGTER_SERVICE_KEY: str

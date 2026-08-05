@@ -5,7 +5,9 @@ from sqlalchemy.orm import declarative_base
 # Create async engine
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
+    # echo=True 는 모든 SQL 과 바인드 파라미터(JSONB 전문 포함)를 로그로 남긴다.
+    # 운영에서는 로그 볼륨과 성능 부담이 커서 개발 환경에서만 켠다.
+    echo=settings.SQL_ECHO,
     future=True
 )
 

@@ -1,0 +1,7 @@
+# 개발/테스트 전용. 운영 이미지(Dockerfile)에는 포함되지 않는다.
+-r requirements.txt
+
+pytest
+pytest-asyncio
+# Windows 에는 IANA tz 데이터가 없어 zoneinfo 가 실패한다 (bids.py 의 ZoneInfo).
+tzdata; sys_platform == "win32"

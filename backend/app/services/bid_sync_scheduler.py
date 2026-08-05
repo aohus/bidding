@@ -5,7 +5,11 @@ from datetime import datetime, timedelta, timezone
 from app.db.database import AsyncSessionLocal
 from app.schemas.bid import BidSearchParams
 from app.services.bid_data_service import bid_data_service
-from app.services.narajangter import NaraJangterService, narajangter_service
+from app.services.narajangter import (
+    NaraJangterService,
+    RateLimitError,
+    narajangter_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +80,22 @@ class BidDataSyncScheduler:
         logger.info("Bid data sync scheduler stopped")
 
     async def _run_sync_cycle(self):
-        """한 번의 동기화 사이클."""
+        """한 번의 동기화 사이클.
+
+        모든 서비스키의 일일 한도가 소진되면(RateLimitError) 남은 단계를
+        건너뛰고 사이클을 종료한다. 실패한 윈도우는 마킹되지 않으므로
+        한도가 리셋된 뒤 다음 사이클에서 다시 시도된다.
+        """
         async with self._sync_lock:
             self._failed_windows = []
             api_calls = 0
-            api_calls = await self._sync_recent_hours(api_calls)
-            api_calls = await self._backfill_past_days(api_calls)
-            await self._sync_reserve_prices(api_calls)
+            try:
+                api_calls = await self._sync_recent_hours(api_calls)
+                api_calls = await self._backfill_past_days(api_calls)
+                await self._sync_reserve_prices(api_calls)
+            except RateLimitError as exc:
+                logger.error(f"Sync cycle aborted, all keys exhausted: {exc}")
+                self._failed_windows.append(f"(한도 소진) {exc}")
 
             if self._failed_windows:
                 await self._send_failure_alert()
@@ -115,6 +128,9 @@ class BidDataSyncScheduler:
                         await bid_data_service.save_reserve_price(
                             db, bid_no, bid_ord or "000", used_type, item
                         )
+            except RateLimitError:
+                # 모든 키 소진 — 남은 target 을 계속 시도할 의미가 없다.
+                raise
             except Exception as exc:
                 logger.warning(
                     f"reserve_price sync failed for {bid_no}-{bid_ord} ({bid_type}): {exc}"
@@ -136,7 +152,7 @@ class BidDataSyncScheduler:
             end = hour_dt.strftime("%Y%m%d%H") + "59"
 
             async with AsyncSessionLocal() as db:
-                entry = await bid_data_service.get_sync_entry(db, ts)
+                entry = await bid_data_service.get_sync_entry(db, ts, end)
 
             if entry and offset > 0:
                 age = (now - entry.synced_at.astimezone(KST)).total_seconds()
@@ -173,8 +189,10 @@ class BidDataSyncScheduler:
             ts = date_str + "0000"
             end = date_str + "2359"
 
+            # 반드시 '일별' 윈도우 기록을 확인해야 한다. 시작 시각만으로 조회하면
+            # 자정 시간별 윈도우(d0000~d0059)가 잡혀 백필이 영구히 skip 된다.
             async with AsyncSessionLocal() as db:
-                entry = await bid_data_service.get_sync_entry(db, ts)
+                entry = await bid_data_service.get_daily_sync_entry(db, date_str)
 
             if entry:
                 continue
@@ -204,7 +222,7 @@ class BidDataSyncScheduler:
             사용된 API 호출 수
         """
         api_calls = 0
-        any_success = False
+        all_success = True
 
         async with AsyncSessionLocal() as db:
             total_notices = 0
@@ -212,42 +230,45 @@ class BidDataSyncScheduler:
             total_license_limits = 0
 
             # 1. 공사(contract) 공고
-            count, success = await self._fetch_notices(
+            count, success, calls = await self._fetch_notices(
                 db, "contract", window_start, window_end
             )
             total_notices += count
-            api_calls += 1
-            any_success = any_success or success
+            api_calls += calls
+            all_success = all_success and success
 
             # 2. 용역(service) 공고
-            count, success = await self._fetch_notices(
+            count, success, calls = await self._fetch_notices(
                 db, "service", window_start, window_end
             )
             total_notices += count
-            api_calls += 1
-            any_success = any_success or success
+            api_calls += calls
+            all_success = all_success and success
 
             # 3. 참가가능지역
-            count, success = await self._fetch_regions(
+            count, success, calls = await self._fetch_regions(
                 db, window_start, window_end
             )
             total_regions = count
-            api_calls += 1
-            any_success = any_success or success
+            api_calls += calls
+            all_success = all_success and success
 
             # 4. 면허제한
-            count, success = await self._fetch_license_limits(
+            count, success, calls = await self._fetch_license_limits(
                 db, window_start, window_end
             )
             total_license_limits = count
-            api_calls += 1
-            any_success = any_success or success
+            api_calls += calls
+            all_success = all_success and success
 
-            # 5. 모든 API 실패 시 마킹하지 않음 (다음 사이클에 재시도)
-            if not any_success:
+            # 5. 하나라도 실패하면 마킹하지 않음 (다음 사이클에 재시도).
+            #    이전에는 하나만 성공해도 마킹했기 때문에, 예컨대 면허제한만
+            #    실패한 윈도우가 "완료"로 남아 그 구간 공고가 업종 필터 검색에서
+            #    영구히 빠졌다.
+            if not all_success:
                 logger.warning(
-                    f"All API calls failed for {window_start}~{window_end}, "
-                    f"skipping mark"
+                    f"Some API calls failed for {window_start}~{window_end}, "
+                    f"skipping mark (will retry next cycle)"
                 )
                 self._failed_windows.append(
                     f"{window_start}~{window_end}"
@@ -276,31 +297,41 @@ class BidDataSyncScheduler:
 
     async def _fetch_notices(
         self, db, work_type: str, bgn: str, end: str
-    ) -> tuple[int, bool]:
-        """공고를 페이지별로 조회하여 저장합니다. (count, success)"""
+    ) -> tuple[int, bool, int]:
+        """공고를 페이지별로 조회하여 저장합니다.
+
+        Returns: (저장 건수, 전 페이지 성공 여부, 실제 API 호출 수)
+
+        RateLimitError 는 잡지 않고 위로 전파한다 — 모든 키가 소진된 상황에서
+        나머지 윈도우를 계속 시도해봐야 의미가 없다.
+        """
         total = 0
         page = 1
-        success = False
+        calls = 0
 
         while True:
+            params = BidSearchParams(
+                inqryDiv="1",
+                inqryBgnDt=bgn,
+                inqryEndDt=end,
+                numOfRows=100,
+                pageNo=page,
+            )
             try:
-                params = BidSearchParams(
-                    inqryDiv="1",
-                    inqryBgnDt=bgn,
-                    inqryEndDt=end,
-                    numOfRows=100,
-                    pageNo=page,
-                )
                 result = await narajangter_service.search_bids(
                     work_type, params
                 )
-                success = True
+                calls += 1
+            except RateLimitError:
+                calls += 1
+                raise
             except Exception as e:
+                calls += 1
                 logger.error(
                     f"Failed to fetch {work_type} bids "
                     f"{bgn}~{end} page {page}: {e}"
                 )
-                break
+                return total, False, calls
 
             if not result.items:
                 break
@@ -313,103 +344,123 @@ class BidDataSyncScheduler:
             page += 1
             await asyncio.sleep(0.5)
 
-        return total, success
+        return total, True, calls
+
+    async def _fetch_paged(
+        self,
+        label: str,
+        fetch,
+        save,
+        db,
+        bgn: str,
+        end: str,
+    ) -> tuple[int, bool, int]:
+        """페이지네이션 + 저장 공통 루프. (저장 건수, 성공 여부, 호출 수)"""
+        total = 0
+        page = 1
+        calls = 0
+
+        while True:
+            try:
+                rows = await fetch(bgn, end, page)
+                calls += 1
+            except RateLimitError:
+                calls += 1
+                raise
+            except Exception as e:
+                calls += 1
+                logger.error(
+                    f"Failed to fetch {label} {bgn}~{end} page {page}: {e}"
+                )
+                return total, False, calls
+
+            if not rows:
+                break
+
+            await save(db, rows)
+            total += len(rows)
+
+            if len(rows) < NaraJangterService.MAX_PAGE_SIZE:
+                break
+            page += 1
+            await asyncio.sleep(0.5)
+
+        return total, True, calls
 
     async def _fetch_regions(
         self, db, bgn: str, end: str
-    ) -> tuple[int, bool]:
+    ) -> tuple[int, bool, int]:
         """참가가능지역을 페이지별로 조회하여 저장합니다."""
-        total = 0
-        page = 1
-        success = False
-
-        while True:
-            try:
-                regions = await narajangter_service.get_prtcpt_psbl_rgn_by_date(
-                    bgn, end, page
-                )
-                success = True
-            except Exception as e:
-                logger.error(
-                    f"Failed to fetch regions {bgn}~{end} page {page}: {e}"
-                )
-                break
-
-            if not regions:
-                break
-
-            await bid_data_service.save_prtcpt_psbl_rgns(db, regions)
-            total += len(regions)
-
-            if len(regions) < NaraJangterService.MAX_PAGE_SIZE:
-                break
-            page += 1
-            await asyncio.sleep(0.5)
-
-        return total, success
+        return await self._fetch_paged(
+            "regions",
+            narajangter_service.get_prtcpt_psbl_rgn_by_date,
+            bid_data_service.save_prtcpt_psbl_rgns,
+            db,
+            bgn,
+            end,
+        )
 
     async def _fetch_license_limits(
         self, db, bgn: str, end: str
-    ) -> tuple[int, bool]:
+    ) -> tuple[int, bool, int]:
         """면허제한 정보를 페이지별로 조회하여 저장합니다."""
-        total = 0
-        page = 1
-        success = False
+        return await self._fetch_paged(
+            "license limits",
+            narajangter_service.get_license_limit_by_date,
+            bid_data_service.save_license_limits,
+            db,
+            bgn,
+            end,
+        )
 
-        while True:
-            try:
-                limits = await narajangter_service.get_license_limit_by_date(
-                    bgn, end, page
-                )
-                success = True
-            except Exception as e:
-                logger.error(
-                    f"Failed to fetch license limits {bgn}~{end} page {page}: {e}"
-                )
-                break
+    async def sync_recent_data(self, days: int = 30, force: bool = False):
+        """수동 트리거용: 과거 N일 동기화.
 
-            if not limits:
-                break
-
-            await bid_data_service.save_license_limits(db, limits)
-            total += len(limits)
-
-            if len(limits) < NaraJangterService.MAX_PAGE_SIZE:
-                break
-            page += 1
-            await asyncio.sleep(0.5)
-
-        return total, success
-
-    async def sync_recent_data(self, days: int = 30):
-        """수동 트리거용: 과거 N일 동기화."""
+        Args:
+            force: True 면 일별 윈도우가 이미 완료로 기록돼 있어도 재동기화한다.
+                   수집 누락이 의심될 때 사용.
+        """
         async with self._sync_lock:
             self._failed_windows = []
             now = datetime.now(KST)
             api_calls = 0
 
-            for day_offset in range(days, -1, -1):
-                if api_calls >= self.MAX_API_CALLS_PER_RUN * 2:
-                    logger.info("API call limit reached during manual sync")
-                    break
-
-                date = now - timedelta(days=day_offset)
-                date_str = date.strftime("%Y%m%d")
-                ts = date_str + "0000"
-                end = date_str + "2359"
-
-                async with AsyncSessionLocal() as db:
-                    entry = await bid_data_service.get_sync_entry(db, ts)
-
-                if entry:
-                    continue
-
-                calls = await self._sync_window_internal(ts, end)
-                api_calls += calls
-                await asyncio.sleep(1)
+            try:
+                api_calls = await self._sync_days(now, days, force)
+            except RateLimitError as exc:
+                logger.error(f"Manual sync aborted, all keys exhausted: {exc}")
+                self._failed_windows.append(f"(한도 소진) {exc}")
 
             if self._failed_windows:
                 await self._send_failure_alert()
+
+    async def _sync_days(self, now, days: int, force: bool) -> int:
+        """sync_recent_data 의 실제 루프 (lock 은 호출자가 보유)."""
+        api_calls = 0
+
+        for day_offset in range(days, -1, -1):
+            if api_calls >= self.MAX_API_CALLS_PER_RUN * 2:
+                logger.info("API call limit reached during manual sync")
+                break
+
+            date = now - timedelta(days=day_offset)
+            date_str = date.strftime("%Y%m%d")
+            ts = date_str + "0000"
+            end = date_str + "2359"
+
+            if not force:
+                async with AsyncSessionLocal() as db:
+                    entry = await bid_data_service.get_daily_sync_entry(
+                        db, date_str
+                    )
+                if entry:
+                    continue
+
+            calls = await self._sync_window_internal(ts, end)
+            api_calls += calls
+            await asyncio.sleep(1)
+
+        return api_calls
 
     async def _send_failure_alert(self):
         """동기화 실패 시 이메일 알림 (1시간에 최대 1회)."""

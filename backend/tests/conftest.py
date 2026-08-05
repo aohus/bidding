@@ -62,6 +62,42 @@ def make_error_response(result_code: str = "99", result_msg: str = "ERROR") -> d
     }
 
 
+def make_service_error_response(
+    result_code: str = "07", result_msg: str = "입력범위값 초과 에러"
+) -> dict:
+    """조달청 서비스 자체 파라미터 검증 에러 봉투.
+
+    실제 응답 예: 조회기간을 1개월 초과로 요청했을 때.
+    HTTP 200 으로 오지만 'response' 키가 없다.
+    """
+    return {
+        "nkoneps.com.response.ResponseError": {
+            "header": {"resultCode": result_code, "resultMsg": result_msg},
+        }
+    }
+
+
+def make_gateway_error_response(
+    return_reason_code: str = "22",
+    err_msg: str = "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR",
+    return_auth_msg: str = "서비스 요청 제한 횟수 초과",
+) -> dict:
+    """data.go.kr 게이트웨이 에러 봉투.
+
+    일일 활용건수 초과(22)와 미등록 서비스키(30)가 이 형태로 온다.
+    22 는 HTTP 429 가 아니라 이 봉투로 오므로 별도 처리가 필요하다.
+    """
+    return {
+        "OpenAPI_ServiceResponse": {
+            "cmmMsgHeader": {
+                "errMsg": err_msg,
+                "returnAuthMsg": return_auth_msg,
+                "returnReasonCode": return_reason_code,
+            }
+        }
+    }
+
+
 def make_http_status_error(status_code: int) -> httpx.HTTPStatusError:
     """Create an httpx.HTTPStatusError for testing."""
     mock_response = MagicMock()

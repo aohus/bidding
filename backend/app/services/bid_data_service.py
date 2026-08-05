@@ -126,6 +126,10 @@ class BidDataService:
             query = query.where(or_(no_region, has_matching_region))
 
         # 업종명 필터 (면허제한명 + 허용업종목록 기반, EXISTS)
+        # 참가가능지역 필터와 동일하게 "면허 정보가 아예 없는 공고"는 배제하지
+        # 않는다. 면허제한 수집이 실패한 공고까지 검색결과에서 통째로 사라지면
+        # 사용자는 누락 사실 자체를 알 수 없다. 업종제한이 없는 공고
+        # (indstrytyLmtYn='N') 도 같은 이유로 살려둔다.
         if params.indstrytyNm:
             LicAlias = aliased(BidLicenseLimit)
             industries = [i.strip() for i in params.indstrytyNm.split(",")]
@@ -137,15 +141,20 @@ class BidDataService:
                 industry_conditions.append(
                     LicAlias.permsn_indstryty_list.ilike(f"%{ind}%")
                 )
-            query = query.where(
-                exists(
-                    select(LicAlias.bid_ntce_no).where(
-                        LicAlias.bid_ntce_no == BidNotice.bid_ntce_no,
-                        LicAlias.bid_ntce_ord == BidNotice.bid_ntce_ord,
-                        or_(*industry_conditions),
-                    )
+            no_license_info = ~exists(
+                select(LicAlias.bid_ntce_no).where(
+                    LicAlias.bid_ntce_no == BidNotice.bid_ntce_no,
+                    LicAlias.bid_ntce_ord == BidNotice.bid_ntce_ord,
                 )
             )
+            has_matching_industry = exists(
+                select(LicAlias.bid_ntce_no).where(
+                    LicAlias.bid_ntce_no == BidNotice.bid_ntce_no,
+                    LicAlias.bid_ntce_ord == BidNotice.bid_ntce_ord,
+                    or_(*industry_conditions),
+                )
+            )
+            query = query.where(or_(no_license_info, has_matching_industry))
 
         # 추정가격 범위 필터
         if params.presmptPrceBgn:
@@ -582,15 +591,29 @@ class BidDataService:
         return synced_days >= expected_days
 
     async def get_sync_entry(
-        self, db: AsyncSession, sync_timestamp: str
+        self, db: AsyncSession, sync_timestamp: str, window_end: str
     ) -> DataSyncLog | None:
-        """특정 윈도우의 sync 엔트리를 조회합니다."""
+        """특정 윈도우의 sync 엔트리를 조회합니다.
+
+        window_end 가 필수인 이유: 자정 시간별 윈도우(d0000~d0059)와
+        일별 백필 윈도우(d0000~d2359)는 sync_timestamp 가 같다. 시작 시각만으로
+        조회하면 시간별 기록을 일별 완료로 오인해 백필을 영구히 건너뛴다.
+        """
         result = await db.execute(
             select(DataSyncLog).where(
-                DataSyncLog.sync_timestamp == sync_timestamp
+                DataSyncLog.sync_timestamp == sync_timestamp,
+                DataSyncLog.window_end == window_end,
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_daily_sync_entry(
+        self, db: AsyncSession, date_str: str
+    ) -> DataSyncLog | None:
+        """해당 일자의 '일별' 윈도우(YYYYMMDD0000~YYYYMMDD2359) 엔트리를 조회합니다."""
+        return await self.get_sync_entry(
+            db, f"{date_str}0000", f"{date_str}2359"
+        )
 
     async def mark_window_synced(
         self,
@@ -612,10 +635,9 @@ class BidDataService:
                 total_license_limits=total_license_limits,
             )
             .on_conflict_do_update(
-                index_elements=["sync_timestamp"],
+                index_elements=["sync_timestamp", "window_end"],
                 set_={
                     "synced_at": func.now(),
-                    "window_end": window_end,
                     "total_notices": total_notices,
                     "total_regions": total_regions,
                     "total_license_limits": total_license_limits,

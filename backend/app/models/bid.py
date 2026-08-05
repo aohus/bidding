@@ -127,11 +127,15 @@ class DataSyncLog(Base):
     window_end: 윈도우 끝 (YYYYMMDDHH59 또는 YYYYMMDD2359)
     - 시간별: 202602111300 ~ 202602111359
     - 일별 백필: 202602100000 ~ 202602102359
+
+    window_end 가 PK 에 포함된다. 자정 시간별 윈도우(YYYYMMDD0000~0059)와
+    일별 백필 윈도우(YYYYMMDD0000~2359)가 sync_timestamp 를 공유하므로,
+    window_end 없이는 서로를 덮어써 일별 백필이 영구히 skip 된다.
     """
     __tablename__ = "data_sync_log"
 
     sync_timestamp = Column(String(12), primary_key=True)
-    window_end = Column(String(12), nullable=False)
+    window_end = Column(String(12), primary_key=True)
     total_notices = Column(Integer, default=0)
     total_regions = Column(Integer, default=0)
     total_license_limits = Column(Integer, default=0)

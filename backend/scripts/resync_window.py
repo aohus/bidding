@@ -1,16 +1,14 @@
 """지정한 날짜를 강제로 재동기화합니다 (data_sync_log skip 로직 우회).
 
 배경:
-    _backfill_past_days / sync_recent_data 는 `get_sync_entry(YYYYMMDD0000)` 가
-    존재하면 그 날을 건너뛴다. 그런데 시간별 00시 윈도우도 같은 키
-    (sync_timestamp=YYYYMMDD0000, window_end=YYYYMMDD0059) 를 쓰기 때문에,
-    00~02시에 스케줄러가 한 번이라도 돌면 그 날은 자동 백필도 관리자 수동
-    /bids/sync 도 영구히 skip 된다.
+    scheduler.sync_window() 는 data_sync_log 를 조회하지 않고
+    _sync_window_internal 을 바로 호출하므로, 이미 완료로 기록된 날짜도
+    무조건 다시 수집한다. 개별 공고 누락이 확인됐을 때의 복구 경로다.
 
-    반면 scheduler.sync_window() 는 data_sync_log 를 아예 조회하지 않고
-    _sync_window_internal 을 바로 호출한다. 따라서 이 스크립트가 그 경로를
-    직접 태워 1회 강제 재동기화를 수행한다. 마지막에 mark_window_synced 가
-    window_end=YYYYMMDD2359 로 upsert 하므로 클로버됐던 로그 행도 정상화된다.
+    완료 시 mark_window_synced 가 (YYYYMMDD0000, YYYYMMDD2359) 행을 남기므로
+    이후 일별 백필이 그 날을 정상적으로 완료 처리한다.
+
+    같은 일을 운영 API 로 하려면: POST /bids/sync?days=N&force=true
 
 사용법:
     # 하루만

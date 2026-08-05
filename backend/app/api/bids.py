@@ -33,7 +33,11 @@ from app.schemas.user import (
     PaginatedBookmarkResponse,
 )
 from app.services.bid_data_service import bid_data_service
-from app.services.narajangter import narajangter_service
+from app.services.narajangter import (
+    NaraJangterApiError,
+    RateLimitError,
+    narajangter_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bids", tags=["Bid Notices"])
@@ -328,9 +332,18 @@ async def _refresh_bid_notice(
     요청된 bid_type으로 먼저 시도, 실패 시 다른 타입으로 재시도.
     """
     for try_type in [bid_type, "servc" if bid_type == "cnstwk" else "cnstwk"]:
-        result = await narajangter_service.get_bid_notice_by_no(
-            bidNtceNo, bid_type=try_type
-        )
+        try:
+            result = await narajangter_service.get_bid_notice_by_no(
+                bidNtceNo, bid_type=try_type
+            )
+        except RateLimitError:
+            logger.warning(
+                f"_refresh_bid_notice({bidNtceNo}): rate limited, skipping refresh"
+            )
+            return None
+        except NaraJangterApiError as exc:
+            logger.warning(f"_refresh_bid_notice({bidNtceNo}) {try_type}: {exc}")
+            continue
         if result:
             await bid_data_service.save_bid_notices(db, [result])
             logger.info(
@@ -486,18 +499,26 @@ async def get_bid_regions(
 @router.post("/sync", response_model=DataSyncResponse)
 async def trigger_sync(
     days: int = 30,
+    force: bool = False,
     current_user: User = Depends(get_admin_user),
 ):
-    """데이터 동기화 트리거 (백그라운드 실행)"""
+    """데이터 동기화 트리거 (백그라운드 실행)
+
+    force=true 면 이미 동기화 완료로 기록된 날짜도 다시 수집한다.
+    특정 공고 누락이 의심될 때 사용.
+    """
     from app.services.bid_sync_scheduler import bid_sync_scheduler
 
-    asyncio.create_task(bid_sync_scheduler.sync_recent_data(days=days))
+    asyncio.create_task(
+        bid_sync_scheduler.sync_recent_data(days=days, force=force)
+    )
 
+    suffix = " (기존 기록 무시)" if force else ""
     return DataSyncResponse(
         synced=False,
         total_notices=0,
         total_regions=0,
-        message=f"최근 {days}일 동기화가 백그라운드에서 시작되었습니다.",
+        message=f"최근 {days}일 동기화가 백그라운드에서 시작되었습니다.{suffix}",
     )
 
 

@@ -14,63 +14,41 @@
 import asyncio
 import os
 import sys
-from datetime import datetime, timedelta
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy import text  # noqa: E402
 
 from app.db.database import AsyncSessionLocal  # noqa: E402
-from app.schemas.bid import BidSearchParams  # noqa: E402
 from app.services.narajangter import narajangter_service  # noqa: E402
-
-# 공고목록 API 는 bidNtceNo 파라미터를 무시하고, 조회기간 상한이 1개월이다.
-# 따라서 단건 조회는 불가능하며 일별 윈도우를 전 페이지 훑어서 찾아야 한다.
-SCAN_DAYS = 40
 
 
 def _digits(value: str | None) -> str:
     return "".join(c for c in (value or "") if c.isdigit())
 
 
-async def probe_api(bid_no: str, scan_days: int = SCAN_DAYS) -> dict | None:
-    """일별 윈도우를 역순으로 훑어 해당 공고를 찾습니다."""
-    today = datetime.now()
-    for off in range(scan_days):
-        day = (today - timedelta(days=off)).strftime("%Y%m%d")
-        for work_type in ("contract", "service"):
-            page = 1
-            while True:
-                params = BidSearchParams(
-                    inqryDiv="1",
-                    inqryBgnDt=f"{day}0000",
-                    inqryEndDt=f"{day}2359",
-                    numOfRows=999,
-                    pageNo=page,
-                )
-                try:
-                    res = await narajangter_service.search_bids(work_type, params)
-                except Exception as exc:  # noqa: BLE001
-                    print(f"  {day} [{work_type}] 호출 실패: "
-                          f"{type(exc).__name__}: {exc}")
-                    break
-                if not res.items:
-                    break
-                for it in res.items:
-                    if it.bidNtceNo == bid_no:
-                        print(f"  ✓ {day} [{work_type}] 에서 발견")
-                        print(f"      bidNtceNm  = {it.bidNtceNm}")
-                        print(f"      bidNtceOrd = {it.bidNtceOrd}")
-                        print(f"      rgstDt     = {it.rgstDt}")
-                        print(f"      opengDt    = {it.opengDt}")
-                        print(f"      ntceInstt  = {it.ntceInsttNm}")
-                        return {"work_type": work_type, "item": it, "day": day}
-                if len(res.items) < 999:
-                    break
-                page += 1
-                await asyncio.sleep(0.3)
-            await asyncio.sleep(0.2)
-    print(f"  ✗ 최근 {scan_days}일 공사/용역 목록에서 못 찾음")
+async def probe_api(bid_no: str) -> dict | None:
+    """공사/용역 목록조회(일반) 엔드포인트로 단건 조회합니다.
+
+    inqryDiv=2 (입찰공고번호) 는 일반 엔드포인트에서만 동작한다.
+    PPSSrch 는 bidNtceNo 를 무시하므로 쓰면 안 된다.
+    """
+    for bid_type in ("cnstwk", "servc"):
+        try:
+            item = await narajangter_service.get_bid_notice_by_no(bid_no, bid_type)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [{bid_type}] 호출 실패: {type(exc).__name__}: {exc}")
+            continue
+        if item is None:
+            print(f"  [{bid_type}] 해당 없음")
+            continue
+        print(f"  ✓ [{bid_type}] API 에 존재")
+        print(f"      bidNtceNm  = {item.bidNtceNm}")
+        print(f"      bidNtceOrd = {item.bidNtceOrd}")
+        print(f"      rgstDt     = {item.rgstDt}")
+        print(f"      opengDt    = {item.opengDt}")
+        print(f"      ntceInstt  = {item.ntceInsttNm}")
+        return {"bid_type": bid_type, "item": item}
     return None
 
 
@@ -84,7 +62,7 @@ async def main() -> None:
 
     print(f"=== 진단 대상: {bid_no}-{bid_ord} ===\n")
 
-    print(f"[1] 나라장터 API 일별 스캔 (최근 {SCAN_DAYS}일)")
+    print("[1] 나라장터 API 단건 조회")
     api_hit = await probe_api(bid_no)
     print()
 
@@ -178,8 +156,8 @@ async def main() -> None:
                   f"sno={lc['lmt_sno']} {lc['lcns_lmt_nm']} "
                   f"| {lc['permsn_indstryty_list']}")
         if row and not lics:
-            print("  ✗ 면허제한 0건 → indstrytyNm(업종명) 필터 검색에서 "
-                  "EXISTS 조건에 걸려 무조건 제외됨")
+            print("  ! 면허제한 0건 → 업종명 필터 검색에서 '면허정보 없음' "
+                  "탈출구로 노출되지만, 업종 매칭 정확도는 떨어짐")
         print()
 
         print("[5] API 직접 재조회 (부속 데이터)")
@@ -195,10 +173,11 @@ async def main() -> None:
             print(f"  API 참가가능지역 조회 실패: {exc}")
 
     print("\n=== 판정 가이드 ===")
-    print("  [1] 없음            → API 미제공. 물품/외자 등 미수집 업무구분일 수 있음")
-    print("  [1] 있고 [2] 없음   → 수집 누락. 윈도우 gap 또는 429 실패")
-    print("  [2] 있고 [4] 면허 0 → 업종명 필터 때문에 검색결과에서만 제외")
-    print("  [3] 시간별만 존재   → 일별 백필 skip 버그 (sync_timestamp 키 충돌)")
+    print("  [1] 없음           → API 미제공. 물품/외자 등 미수집 업무구분일 수 있음")
+    print("  [1] 있고 [2] 없음  → 수집 누락. 아래로 복구:")
+    print("       python scripts/resync_window.py <등록일 YYYYMMDD>")
+    print("  [3] 일별(2359) 없음 → 그 날은 일별 백필이 아직 안 돌았음")
+    print("  [4] 부속 0건       → 해당 윈도우의 지역/면허 수집이 실패했음")
 
 
 if __name__ == "__main__":

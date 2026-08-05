@@ -70,6 +70,9 @@ class BidItem(BaseModel):
     indstrytyMfrcFldEvlYn: Optional[str] = None # 업종 주력분야 평가 대상 여부
     rgnLmtBidLocplcJdgmBssCd: Optional[str] = None # 지역제한입찰소재지판단기준코드
     rgnLmtBidLocplcJdgmBssNm: Optional[str] = None # 지역제한입찰소재지판단기준명
+    # 참고자료 v1.2 (2026.04.10) 신규 항목
+    sucsfbidMthdAppStd: Optional[str] = None # 낙찰방법적용기준
+    befBidBbancNo: Optional[str] = None # 이전입찰공고번호
     prtcptPsblRgnNms: Optional[str] = None # 참가가능지역명 (검색결과용, 쉼표구분)
     permsnIndstrytyListNms: Optional[str] = None # 허용업종목록 (검색결과용, 쉼표구분)
     indstrytyMfrcFldListNms: Optional[str] = None # 주력분야목록 (검색결과용, 쉼표구분)

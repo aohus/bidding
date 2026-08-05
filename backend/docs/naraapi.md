@@ -1,5 +1,70 @@
 url: http://apis.data.go.kr/1230000/ad/BidPublicInfoService
 
+참고자료 버전: v1.2 (2026.04.10) 기준. 아래 "핵심 주의사항"은 실제 호출로 검증함.
+
+## 핵심 주의사항
+
+### 1. 서비스키는 "디코딩" 키를 쓴다
+
+httpx 등 대부분의 클라이언트가 query params 를 URL 인코딩한다.
+공공데이터포털의 "인코딩" 키(`%2F`, `%2B`, `%3D` 포함)를 그대로 넣으면
+이중 인코딩되어 HTTP 403 + `returnReasonCode 30` (등록되지 않은 서비스키)가 된다.
+
+### 2. 두 엔드포인트 계열의 inqryDiv 의미가 다르다
+
+| 계열 | 엔드포인트 | inqryDiv |
+|---|---|---|
+| 목록조회(일반) | `getBidPblancListInfoCnstwk` / `Servc` / `Thng` / `Frgcpt` | **1:등록일시, 2:입찰공고번호, 3:변경일시** |
+| 나라장터검색조건 | `...PPSSrch` | **1:공고게시일시, 2:개찰일시** |
+| 참가가능지역 / 면허제한 | `getBidPblancListInfoPrtcptPsblRgn` / `LicenseLimit` | 1:등록일시, 2:입찰공고번호 |
+| 기초금액 | `...BsisAmount` | 1:입력일시, 2:입찰공고번호 |
+
+**공고번호 단건 조회는 일반 엔드포인트 + `inqryDiv=2` 로만 가능하다.**
+PPSSrch 는 `bidNtceNo` 파라미터를 받긴 하지만 **필터에 반영하지 않는다**
+(totalCount 가 줄지 않고 엉뚱한 공고가 반환됨). 따라서 PPSSrch 응답에서
+정확 매칭에 실패했을 때 첫 항목으로 폴백하면 다른 공고 데이터를 저장하게 된다.
+
+### 3. 조회기간 상한은 1개월
+
+`inqryBgnDt` ~ `inqryEndDt` 간격이 1개월을 넘으면 `resultCode 07`
+(입력범위값 초과 에러). 실측: 1개월 정상(10,459건), 2개월부터 실패.
+
+### 4. 응답 봉투가 세 가지다
+
+정상 응답만 `response` 키를 가진다. 에러는 다른 봉투로 오므로
+`"response" not in data` 를 "데이터 없음"으로 처리하면 안 된다.
+
+```
+정상        {"response": {"header": {"resultCode": "00"}, "body": {...}}}
+서비스 에러  {"nkoneps.com.response.ResponseError": {"header": {"resultCode": "07", ...}}}
+게이트웨이   {"OpenAPI_ServiceResponse": {"cmmMsgHeader": {"returnReasonCode": "30", ...}}}
+```
+
+### 5. 일일 한도 초과는 HTTP 429 가 아니라 코드 22 로 온다
+
+`returnReasonCode 22` = 서비스 요청 제한 횟수 초과(일일 활용건수 초과).
+HTTP 429 만 보고 키 로테이션을 하면 실제 한도 소진 상황에서 동작하지 않는다.
+
+주요 에러코드: 01 Application Error / 02 DB Error / 03 No Data /
+05 timeout / 06 날짜Format / 07 입력범위 초과 / 08 필수값 누락 /
+20 접근 거부 / 22 일일 한도 초과 / 30 미등록 키 / 31 만료 키 / 32 IP 불일치
+
+### 6. v1.2 변경 사항
+
+- (2026.04.10) `sucsfbidMthdAppStd`(낙찰방법적용기준),
+  `befBidBbancNo`(이전입찰공고번호) 항목 추가 — 공사/용역/외자/물품 조회 및
+  PPSSrch 4종 전부. `sucsfbidMthdAppStd` 는 실제 값이 채워져 온다
+  (예: "지방자치단체 입찰시 낙찰자 결정기준"). `BidItem` 에 반영함.
+- (2026.04) 전남광주통합특별시 지역코드 추가 — 소재지 목록 조회 대상.
+  본 프로젝트는 지역명을 API 응답 문자열 그대로 다루므로 코드 매핑 영향 없음.
+- (2025.09.28) `smkpAmt`, `smkpAmtYn` 추가 — 공사기초금액조회 / 입찰가격산식A정보조회.
+  `BidAValueItem` 에 이미 반영돼 있음.
+- (2025.09.28) `techAbltEvlRt`, `bidPrceEvlRt` 추가 — 용역/외자/물품 조회.
+  현재 수집 대상 필드 아님.
+
+---
+
+
 나라장터검색조건에 의한 입찰공고공사조회 API
 endpoint: getBidPblancListInfoCnstwkPPSSrch
 
