@@ -50,6 +50,16 @@ def parse_price(price_str: Optional[str]) -> int:
         return 0
 
 
+def escape_like(term: str) -> str:
+    """LIKE/ILIKE 패턴에서 사용자 입력의 와일드카드를 리터럴로 이스케이프합니다.
+
+    '%', '_', '\\' 를 그대로 검색어로 취급하기 위함. escape='\\' 와 함께 사용.
+    """
+    return (
+        term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+
+
 def get_matching_regions(location_name: str) -> List[str]:
     """소재지에서 참가가능지역 매칭 패턴을 생성합니다.
 
@@ -128,27 +138,25 @@ class BidDataService:
             query = query.where(or_(no_region, has_matching_region))
 
         # 업종명 필터 (면허제한명 + 허용업종목록 기반, EXISTS)
-        # 참가가능지역 필터와 동일하게 "면허 정보가 아예 없는 공고"는 배제하지
-        # 않는다. 면허제한 수집이 실패한 공고까지 검색결과에서 통째로 사라지면
-        # 사용자는 누락 사실 자체를 알 수 없다. 업종제한이 없는 공고
-        # (indstrytyLmtYn='N') 도 같은 이유로 살려둔다.
-        if params.indstrytyNm:
+        # 엄격 필터: 지정한 업종에 매칭되는 공고만 남긴다. 허용업종 정보가
+        # 아예 없는 공고는 결과에서 제외한다. (참가가능지역 필터는 "전체"
+        # sentinel 행이 실제로 존재해 탈출구가 정상 동작하지만, 면허제한은
+        # 정보 없는 공고에 행 자체가 없어 탈출구가 "정보 없음=모두 통과"로
+        # 새기 때문에 업종 필터에서는 탈출구를 두지 않는다.)
+        industries = [
+            i.strip() for i in (params.indstrytyNm or "").split(",") if i.strip()
+        ]
+        if industries:
             LicAlias = aliased(BidLicenseLimit)
-            industries = [i.strip() for i in params.indstrytyNm.split(",")]
             industry_conditions = []
             for ind in industries:
+                pattern = f"%{escape_like(ind)}%"
                 industry_conditions.append(
-                    LicAlias.lcns_lmt_nm.ilike(f"%{ind}%")
+                    LicAlias.lcns_lmt_nm.ilike(pattern, escape="\\")
                 )
                 industry_conditions.append(
-                    LicAlias.permsn_indstryty_list.ilike(f"%{ind}%")
+                    LicAlias.permsn_indstryty_list.ilike(pattern, escape="\\")
                 )
-            no_license_info = ~exists(
-                select(LicAlias.bid_ntce_no).where(
-                    LicAlias.bid_ntce_no == BidNotice.bid_ntce_no,
-                    LicAlias.bid_ntce_ord == BidNotice.bid_ntce_ord,
-                )
-            )
             has_matching_industry = exists(
                 select(LicAlias.bid_ntce_no).where(
                     LicAlias.bid_ntce_no == BidNotice.bid_ntce_no,
@@ -156,7 +164,7 @@ class BidDataService:
                     or_(*industry_conditions),
                 )
             )
-            query = query.where(or_(no_license_info, has_matching_industry))
+            query = query.where(has_matching_industry)
 
         # 추정가격 범위 필터
         if params.presmptPrceBgn:

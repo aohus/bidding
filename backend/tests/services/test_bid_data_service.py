@@ -3,8 +3,9 @@
 고정하는 핵심 동작:
   1. sync 엔트리 조회는 (시작, 끝) 두 컬럼을 모두 조건에 넣어야 한다.
      자정 시간별 윈도우와 일별 백필 윈도우는 sync_timestamp 가 같기 때문.
-  2. 업종명 필터는 면허 정보가 없는 공고를 배제하면 안 된다.
-     (참가가능지역 필터와 동일한 탈출구가 있어야 한다)
+  2. 업종명 필터는 허용업종 정보가 매칭되는 공고만 남긴다.
+     면허 정보가 없는 공고는 결과에서 제외한다 (엄격 필터).
+     참가가능지역 필터는 "전체" sentinel 행이 있으므로 탈출구를 유지한다.
 """
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,6 +16,7 @@ from app.models.bid import DataSyncLog
 from app.schemas.bid import BidSearchParams
 from app.services.bid_data_service import (
     BidDataService,
+    escape_like,
     get_matching_regions,
     normalize_date_str,
     parse_price,
@@ -23,6 +25,16 @@ from app.services.bid_data_service import (
 
 def compile_sql(stmt) -> str:
     return str(stmt.compile(dialect=postgresql.dialect()))
+
+
+def compile_sql_literal(stmt) -> str:
+    """바인드 파라미터 값을 인라인으로 렌더링 (검색어 리터럴 검증용)."""
+    return str(
+        stmt.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
 
 
 def make_db(scalar_value=0, notices=None):
@@ -100,15 +112,16 @@ class TestSyncEntryLookup:
 # 검색 필터
 # ---------------------------------------------------------------------------
 
-class TestIndustryFilterEscapeHatch:
+class TestIndustryFilterStrict:
     @pytest.mark.asyncio
-    async def test_industry_filter_keeps_notices_without_license_rows(
+    async def test_industry_filter_excludes_notices_without_license_rows(
         self, service
     ):
-        """면허 정보가 없는 공고를 EXISTS 로 잘라내면 안 된다.
+        """허용업종 정보가 없는 공고는 업종 필터 결과에서 제외되어야 한다.
 
-        면허제한 수집이 실패한 공고까지 검색결과에서 통째로 사라지면
-        사용자는 누락 사실 자체를 인지할 수 없다.
+        '업종명' 필터는 해당 업종에 매칭되는 공고만 보여줘야 한다.
+        면허 정보가 아예 없는 공고를 통과시키는 탈출구(NOT EXISTS)는 없어야 한다.
+        (참가가능지역 필터는 "전체" sentinel 행이 있으므로 별개다)
         """
         db = make_db()
         params = BidSearchParams(
@@ -121,8 +134,8 @@ class TestIndustryFilterEscapeHatch:
         await service.search_from_db(db, params)
 
         sql = compile_sql(db.execute.await_args_list[1].args[0])
-        assert "NOT (EXISTS" in sql, "면허 정보 없음 탈출구가 있어야 함"
         assert "bid_license_limits" in sql
+        assert "NOT (EXISTS" not in sql, "면허 정보 없음 탈출구가 없어야 함"
 
     @pytest.mark.asyncio
     async def test_industry_filter_still_matches_by_name(self, service):
@@ -139,6 +152,55 @@ class TestIndustryFilterEscapeHatch:
         sql = compile_sql(db.execute.await_args_list[1].args[0])
         assert "lcns_lmt_nm" in sql
         assert "permsn_indstryty_list" in sql
+
+    @pytest.mark.asyncio
+    async def test_industry_filter_escapes_like_wildcards(self, service):
+        """사용자 입력의 %, _ 는 리터럴로 취급해야 한다 (와일드카드 오동작 방지)."""
+        db = make_db()
+        params = BidSearchParams(
+            inqryDiv="1",
+            inqryBgnDt="202608040000",
+            inqryEndDt="202608042359",
+            indstrytyNm="50%_A",
+        )
+
+        await service.search_from_db(db, params)
+
+        sql = compile_sql(db.execute.await_args_list[1].args[0])
+        assert "ESCAPE" in sql.upper(), "ilike 에 escape 절이 있어야 함"
+
+    @pytest.mark.asyncio
+    async def test_industry_filter_splits_multiple_industries(self, service):
+        """쉼표 구분 다중 업종은 각각 OR 로 결합되어야 한다."""
+        db = make_db()
+        params = BidSearchParams(
+            inqryDiv="1",
+            inqryBgnDt="202608040000",
+            inqryEndDt="202608042359",
+            indstrytyNm="조경식재,토목",
+        )
+
+        await service.search_from_db(db, params)
+
+        sql = compile_sql_literal(db.execute.await_args_list[1].args[0])
+        assert "조경식재" in sql
+        assert "토목" in sql
+
+    @pytest.mark.asyncio
+    async def test_blank_industry_filter_leaves_license_join_out(self, service):
+        """공백만 입력되면 업종 필터를 적용하지 않는다 (모든 행 매칭 방지)."""
+        db = make_db()
+        params = BidSearchParams(
+            inqryDiv="1",
+            inqryBgnDt="202608040000",
+            inqryEndDt="202608042359",
+            indstrytyNm="   ",
+        )
+
+        await service.search_from_db(db, params)
+
+        sql = compile_sql(db.execute.await_args_list[1].args[0])
+        assert "bid_license_limits" not in sql
 
     @pytest.mark.asyncio
     async def test_no_industry_filter_leaves_license_join_out(self, service):
@@ -227,3 +289,16 @@ class TestHelpers:
 
     def test_get_matching_regions_single_token(self):
         assert get_matching_regions("경기도") == ["전체", "", "경기도"]
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("토목", "토목"),
+            ("50%", "50\\%"),
+            ("분야_A", "분야\\_A"),
+            ("a\\b", "a\\\\b"),
+            ("100%_B\\C", "100\\%\\_B\\\\C"),
+        ],
+    )
+    def test_escape_like(self, raw, expected):
+        assert escape_like(raw) == expected
