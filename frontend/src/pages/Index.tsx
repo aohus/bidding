@@ -5,6 +5,8 @@ import BidTable, { BookmarkInfo } from '@/components/BidTable';
 import BidCalculator from '@/components/BidCalculator';
 import AuthForm from '@/components/AuthForm';
 import Header from '@/components/Header';
+import ExternalBidPanel from '@/components/ExternalBidPanel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { backendApi } from '@/lib/backendApi';
 import { AuthService } from '@/lib/auth';
 import { toast } from 'sonner';
@@ -299,39 +301,53 @@ export default function Index() {
       <Header onLogout={handleLogout} />
 
       <main className="mx-auto px-4 py-8 max-w-[1800px]">
-        <div className="space-y-6">
-          <SearchForm onSearch={handleSearch} isLoading={isLoading} initialValues={currentSearchParams} />
+        {/* 나라장터와 외부기관은 필터 축이 달라(지역·업종 vs 기관) 탭으로 분리한다.
+            한 테이블에 합치면 지역·업종 필터가 외부기관 공고를 전부 통과시키거나
+            전부 제외해 기존 검색 결과가 왜곡된다. */}
+        <Tabs defaultValue="narajangter" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="narajangter">나라장터</TabsTrigger>
+            <TabsTrigger value="external">외부기관</TabsTrigger>
+          </TabsList>
 
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold text-gray-800">검색 결과</h2>
-                {totalCount > 0 && (
-                  <span className="text-sm text-gray-500">
-                    전체 <strong>{totalCount.toLocaleString()}</strong>건
-                  </span>
-                )}
+          <TabsContent value="narajangter" className="space-y-6 mt-0">
+            <SearchForm onSearch={handleSearch} isLoading={isLoading} initialValues={currentSearchParams} />
+
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-gray-800">검색 결과</h2>
+                  {totalCount > 0 && (
+                    <span className="text-sm text-gray-500">
+                      전체 <strong>{totalCount.toLocaleString()}</strong>건
+                    </span>
+                  )}
+                </div>
+
+                <BidTable
+                  bids={bids}
+                  onBidClick={handleBidClick}
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalCount={totalCount}
+                  onPageChange={handlePageChange}
+                  isLoading={isLoading || isCalculating}
+                  numOfRows={numOfRows}
+                  onNumOfRowsChange={handleNumOfRowsChange}
+                  orderBy={orderBy}
+                  orderDir={orderDir}
+                  onSort={handleSort}
+                  bookmarkMap={bookmarkMap}
+                  onBookmarkToggle={handleBookmarkToggle}
+                />
               </div>
-
-              <BidTable
-                bids={bids}
-                onBidClick={handleBidClick}
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalCount={totalCount}
-                onPageChange={handlePageChange}
-                isLoading={isLoading || isCalculating}
-                numOfRows={numOfRows}
-                onNumOfRowsChange={handleNumOfRowsChange}
-                orderBy={orderBy}
-                orderDir={orderDir}
-                onSort={handleSort}
-                bookmarkMap={bookmarkMap}
-                onBookmarkToggle={handleBookmarkToggle}
-              />
             </div>
-          </div>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="external" className="mt-0">
+            <ExternalBidPanel />
+          </TabsContent>
+        </Tabs>
       </main>
 
       <BidCalculator

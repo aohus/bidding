@@ -1,5 +1,12 @@
 import { AuthService } from './auth';
+import { buildExternalBidQuery } from './externalBidQuery';
 import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus, EstimateRateResponse, EstimateRateDistributionResponse } from '@/types/bid';
+import type {
+  ExternalBidListResponse,
+  ExternalBidSearchInput,
+  ExternalSourceInfo,
+  ExternalSourceListResponse,
+} from '@/types/externalBid';
 
 const API_BASE_URL = '/server';
 
@@ -117,6 +124,46 @@ class BackendApiService {
       throw new Error(error.detail || '공고 상세 조회 실패');
     }
     return response.json();
+  }
+
+  /**
+   * 외부기관(비-나라장터) 공고 조회.
+   *
+   * /bids 가 아니라 /external-bids 다 — /bids/{bidNtceNo}/results 가변 경로가
+   * /bids/external/... 을 가로채기 때문에 백엔드에서 프리픽스를 분리했다.
+   */
+  async searchExternalBids(
+    input: ExternalBidSearchInput,
+    pageNo: number = 1,
+    numOfRows: number = 100,
+  ): Promise<ExternalBidListResponse> {
+    const query = buildExternalBidQuery(input, pageNo, numOfRows);
+    const url = `${API_BASE_URL}/external-bids?${query.toString()}`;
+
+    const response = await this.authFetch(url, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || '외부기관 공고 조회 실패');
+    }
+    return response.json();
+  }
+
+  async getExternalSources(): Promise<ExternalSourceInfo[]> {
+    const response = await this.authFetch(`${API_BASE_URL}/external-bids/sources`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || '기관 목록 조회 실패');
+    }
+    const data: ExternalSourceListResponse = await response.json();
+    return data.sources;
   }
 
   async getBidAValue(bidNtceNo: string, bidType: string = 'cnstwk'): Promise<BidAValueItem | null> {
