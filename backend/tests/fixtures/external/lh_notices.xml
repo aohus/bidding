@@ -1,0 +1,801 @@
+<?xml version="1.0" encoding="EUC-KR"?>
+
+
+
+
+
+
+
+	<response>
+    <header>
+        <resultCode>00</resultCode>
+        <resultMsg>NORMAL SERVICE</resultMsg>
+    </header>
+    
+    
+	    <body>
+	       
+	            <item>
+	   					<bidNum>2603536</bidNum>
+	   					<bidDegree>00</bidDegree>
+	   					<cstrtnJobGbNm>지급자재 </cstrtnJobGbNm>
+	   					<bidKind>일반공고 </bidKind>	
+						<bidnmKor><![CDATA[(재공고)(장애인기업)울산다운2 A-2BL 아파트 전기공사 지급자재(케이블트레이) 제작 및 납품]]> </bidnmKor>
+						
+						<bidnmEng>  </bidnmEng>
+						
+						<zoneHqCd>부산울산지역본부 </zoneHqCd>
+						<bidProgrsStatus>마감 </bidProgrsStatus>
+						<tndrCtrctMedCd>수의공고 </tndrCtrctMedCd>
+						<tndrbidRegDt>20261001 </tndrbidRegDt>
+						<presmtPrc>30316615 </presmtPrc>
+						<addtTax>3031661 </addtTax>
+						<designPrc>33348276 </designPrc>
+						<fdmtlAmt>33349000 </fdmtlAmt>
+						<sunjungNm>최저가심사 </sunjungNm>
+						<gongdongNm>공동수급불허 </gongdongNm>
+						<cooperdocAcptEndDtm>  </cooperdocAcptEndDtm>
+						<tndrdocAcptBgninDtm>2026/10/01 15:00 </tndrdocAcptBgninDtm>
+						<tndrdocAcptEndDtm>2026/10/08 15:00 </tndrdocAcptEndDtm>
+						<openDtm>2026/10/08 16:00 </openDtm>
+						<zoneRstrct1>  </zoneRstrct1>
+						<zoneRstrct2>  </zoneRstrct2>
+						<zoneRstrct3>  </zoneRstrct3>
+						<zoneRstrct4>  </zoneRstrct4>
+						<vndrrstrctNm1>  </vndrrstrctNm1>
+						<vndrrstrctNm2>  </vndrrstrctNm2>
+						<vndrrstrctNm3>  </vndrrstrctNm3>
+						<vndrrstrctNm4>  </vndrrstrctNm4>
+						
+						<req1MvgbNm>  </req1MvgbNm>		
+						
+						<req1Reqlic1Nm>  </req1Reqlic1Nm>
+						
+						
+						<req1Reqlic2Nm>  </req1Reqlic2Nm>
+												
+						
+						<req1Reqlic3Nm>  </req1Reqlic3Nm>
+						
+						
+						<req1Reqlic4Nm>  </req1Reqlic4Nm>
+						
+						
+						<req1Reqlic5Nm>  </req1Reqlic5Nm>
+						
+						
+						<req1Reqlic6Nm>  </req1Reqlic6Nm>
+						
+						
+						<req1Reqlic7Nm>  </req1Reqlic7Nm>
+												
+						
+						<req1Reqlic8Nm>  </req1Reqlic8Nm>
+						
+						
+						<req1Reqlic9Nm>  </req1Reqlic9Nm>
+						
+						
+						<req1Reqlic10Nm>  </req1Reqlic10Nm>
+						
+						<req1LicctNm>  </req1LicctNm>
+						<req1BsncatGrpNm>  </req1BsncatGrpNm>																																																						
+						<req1LicGbNm>  </req1LicGbNm>
+
+						<req2MvgbNm>  </req2MvgbNm>		
+						
+						<req2Reqlic1Nm>  </req2Reqlic1Nm>
+						
+						
+						<req2Reqlic2Nm>  </req2Reqlic2Nm>
+												
+						
+						<req2Reqlic3Nm>  </req2Reqlic3Nm>
+						
+						
+						<req2Reqlic4Nm>  </req2Reqlic4Nm>
+						
+						
+						<req2Reqlic5Nm>  </req2Reqlic5Nm>
+						
+						
+						<req2Reqlic6Nm>  </req2Reqlic6Nm>
+						
+						
+						<req2Reqlic7Nm>  </req2Reqlic7Nm>
+												
+						
+						<req2Reqlic8Nm>  </req2Reqlic8Nm>
+						
+						
+						<req2Reqlic9Nm>  </req2Reqlic9Nm>
+						
+						
+						<req2Reqlic10Nm>  </req2Reqlic10Nm>
+						
+						<req2LicctNm>  </req2LicctNm>
+						<req2BsncatGrpNm>  </req2BsncatGrpNm>																																																						
+						<req2LicGbNm>  </req2LicGbNm>
+
+						<req3MvgbNm>  </req3MvgbNm>		
+						
+						<req3Reqlic1Nm>  </req3Reqlic1Nm>
+						
+						
+						<req3Reqlic2Nm>  </req3Reqlic2Nm>
+												
+						
+						<req3Reqlic3Nm>  </req3Reqlic3Nm>
+						
+						
+						<req3Reqlic4Nm>  </req3Reqlic4Nm>
+						
+						
+						<req3Reqlic5Nm>  </req3Reqlic5Nm>
+						
+						
+						<req3Reqlic6Nm>  </req3Reqlic6Nm>
+						
+						
+						<req3Reqlic7Nm>  </req3Reqlic7Nm>
+												
+						
+						<req3Reqlic8Nm>  </req3Reqlic8Nm>
+						
+						
+						<req3Reqlic9Nm>  </req3Reqlic9Nm>
+						
+						
+						<req3Reqlic10Nm>  </req3Reqlic10Nm>
+						
+						<req3LicctNm>  </req3LicctNm>
+						<req3BsncatGrpNm>  </req3BsncatGrpNm>																																																						
+						<req3LicGbNm>  </req3LicGbNm>
+
+						<req4MvgbNm>  </req4MvgbNm>		
+						
+						<req4Reqlic1Nm>  </req4Reqlic1Nm>
+						
+						
+						<req4Reqlic2Nm>  </req4Reqlic2Nm>
+												
+						
+						<req4Reqlic3Nm>  </req4Reqlic3Nm>
+						
+						
+						<req4Reqlic4Nm>  </req4Reqlic4Nm>
+						
+						
+						<req4Reqlic5Nm>  </req4Reqlic5Nm>
+						
+						
+						<req4Reqlic6Nm>  </req4Reqlic6Nm>
+						
+						
+						<req4Reqlic7Nm>  </req4Reqlic7Nm>
+												
+						
+						<req4Reqlic8Nm>  </req4Reqlic8Nm>
+						
+						
+						<req4Reqlic9Nm>  </req4Reqlic9Nm>
+						
+						
+						<req4Reqlic10Nm>  </req4Reqlic10Nm>
+						
+						<req4LicctNm>  </req4LicctNm>
+						<req4BsncatGrpNm>  </req4BsncatGrpNm>																																																						
+						<req4LicGbNm>  </req4LicGbNm>
+
+						<req5MvgbNm>  </req5MvgbNm>		
+						
+						<req5Reqlic1Nm>  </req5Reqlic1Nm>
+						
+						
+						<req5Reqlic2Nm>  </req5Reqlic2Nm>
+												
+						
+						<req5Reqlic3Nm>  </req5Reqlic3Nm>
+						
+						
+						<req5Reqlic4Nm>  </req5Reqlic4Nm>
+						
+						
+						<req5Reqlic5Nm>  </req5Reqlic5Nm>
+						
+						
+						<req5Reqlic6Nm>  </req5Reqlic6Nm>
+						
+						
+						<req5Reqlic7Nm>  </req5Reqlic7Nm>
+												
+						
+						<req5Reqlic8Nm>  </req5Reqlic8Nm>
+						
+						
+						<req5Reqlic9Nm>  </req5Reqlic9Nm>
+						
+						
+						<req5Reqlic10Nm>  </req5Reqlic10Nm>
+						
+						<req5LicctNm>  </req5LicctNm>
+						<req5BsncatGrpNm>  </req5BsncatGrpNm>																																																						
+						<req5LicGbNm>  </req5LicGbNm>
+
+						<req6MvgbNm>  </req6MvgbNm>		
+						
+						<req6Reqlic1Nm>  </req6Reqlic1Nm>
+						
+						
+						<req6Reqlic2Nm>  </req6Reqlic2Nm>
+												
+						
+						<req6Reqlic3Nm>  </req6Reqlic3Nm>
+						
+						
+						<req6Reqlic4Nm>  </req6Reqlic4Nm>
+						
+						
+						<req6Reqlic5Nm>  </req6Reqlic5Nm>
+						
+						
+						<req6Reqlic6Nm>  </req6Reqlic6Nm>
+						
+						
+						<req6Reqlic7Nm>  </req6Reqlic7Nm>
+												
+						
+						<req6Reqlic8Nm>  </req6Reqlic8Nm>
+						
+						
+						<req6Reqlic9Nm>  </req6Reqlic9Nm>
+						
+						
+						<req6Reqlic10Nm>  </req6Reqlic10Nm>
+						
+						<req6LicctNm>  </req6LicctNm>
+						<req6BsncatGrpNm>  </req6BsncatGrpNm>																																																						
+						<req6LicGbNm>  </req6LicGbNm>
+
+						<req7MvgbNm>  </req7MvgbNm>		
+						
+						<req7Reqlic1Nm>  </req7Reqlic1Nm>
+						
+						
+						<req7Reqlic2Nm>  </req7Reqlic2Nm>
+												
+						
+						<req7Reqlic3Nm>  </req7Reqlic3Nm>
+						
+						
+						<req7Reqlic4Nm>  </req7Reqlic4Nm>
+						
+						
+						<req7Reqlic5Nm>  </req7Reqlic5Nm>
+						
+						
+						<req7Reqlic6Nm>  </req7Reqlic6Nm>
+						
+						
+						<req7Reqlic7Nm>  </req7Reqlic7Nm>
+												
+						
+						<req7Reqlic8Nm>  </req7Reqlic8Nm>
+						
+						
+						<req7Reqlic9Nm>  </req7Reqlic9Nm>
+						
+						
+						<req7Reqlic10Nm>  </req7Reqlic10Nm>
+						
+						<req7LicctNm>  </req7LicctNm>
+						<req7BsncatGrpNm>  </req7BsncatGrpNm>																																																						
+						<req7LicGbNm>  </req7LicGbNm>
+
+						<req8MvgbNm>  </req8MvgbNm>		
+						
+						<req8Reqlic1Nm>  </req8Reqlic1Nm>
+						
+						
+						<req8Reqlic2Nm>  </req8Reqlic2Nm>
+												
+						
+						<req8Reqlic3Nm>  </req8Reqlic3Nm>
+						
+						
+						<req8Reqlic4Nm>  </req8Reqlic4Nm>
+						
+						
+						<req8Reqlic5Nm>  </req8Reqlic5Nm>
+						
+						
+						<req8Reqlic6Nm>  </req8Reqlic6Nm>
+						
+						
+						<req8Reqlic7Nm>  </req8Reqlic7Nm>
+												
+						
+						<req8Reqlic8Nm>  </req8Reqlic8Nm>
+						
+						
+						<req8Reqlic9Nm>  </req8Reqlic9Nm>
+						
+						
+						<req8Reqlic10Nm>  </req8Reqlic10Nm>
+						
+						<req8LicctNm>  </req8LicctNm>
+						<req8BsncatGrpNm>  </req8BsncatGrpNm>																																																						
+						<req8LicGbNm>  </req8LicGbNm>
+
+						<req9MvgbNm>  </req9MvgbNm>		
+						
+						<req9Reqlic1Nm>  </req9Reqlic1Nm>
+						
+						
+						<req9Reqlic2Nm>  </req9Reqlic2Nm>
+												
+						
+						<req9Reqlic3Nm>  </req9Reqlic3Nm>
+						
+						
+						<req9Reqlic4Nm>  </req9Reqlic4Nm>
+						
+						
+						<req9Reqlic5Nm>  </req9Reqlic5Nm>
+						
+						
+						<req9Reqlic6Nm>  </req9Reqlic6Nm>
+						
+						
+						<req9Reqlic7Nm>  </req9Reqlic7Nm>
+												
+						
+						<req9Reqlic8Nm>  </req9Reqlic8Nm>
+						
+						
+						<req9Reqlic9Nm>  </req9Reqlic9Nm>
+						
+						
+						<req9Reqlic10Nm>  </req9Reqlic10Nm>
+						
+						<req9LicctNm>  </req9LicctNm>
+						<req9BsncatGrpNm>  </req9BsncatGrpNm>																																																						
+						<req9LicGbNm>  </req9LicGbNm>
+
+						<req10MvgbNm>  </req10MvgbNm>		
+						
+						<req10Reqlic1Nm>  </req10Reqlic1Nm>
+						
+						
+						<req10Reqlic2Nm>  </req10Reqlic2Nm>
+												
+						
+						<req10Reqlic3Nm>  </req10Reqlic3Nm>
+						
+						
+						<req10Reqlic4Nm>  </req10Reqlic4Nm>
+						
+						
+						<req10Reqlic5Nm>  </req10Reqlic5Nm>
+						
+						
+						<req10Reqlic6Nm>  </req10Reqlic6Nm>
+						
+						
+						<req10Reqlic7Nm>  </req10Reqlic7Nm>
+												
+						
+						<req10Reqlic8Nm>  </req10Reqlic8Nm>
+						
+						
+						<req10Reqlic9Nm>  </req10Reqlic9Nm>
+						
+						
+						<req10Reqlic10Nm>  </req10Reqlic10Nm>
+						
+						<req10LicctNm>  </req10LicctNm>
+						<req10BsncatGrpNm>  </req10BsncatGrpNm>																																																						
+						<req10LicGbNm>  </req10LicGbNm>
+						
+						<prcscoreExclusAmt>0 </prcscoreExclusAmt>
+						
+						
+						<antbsncatRstrctFg>  </antbsncatRstrctFg>
+						
+		 		</item>
+	     
+	            <item>
+	   					<bidNum>2603531</bidNum>
+	   					<bidDegree>00</bidDegree>
+	   					<cstrtnJobGbNm>지급자재 </cstrtnJobGbNm>
+	   					<bidKind>일반공고 </bidKind>	
+						<bidnmKor><![CDATA[대구연호 A-2BL 아파트 건설공사 도로경계석 제작 및 납품]]> </bidnmKor>
+						
+						<bidnmEng>  </bidnmEng>
+						
+						<zoneHqCd>대구경북지역본부 </zoneHqCd>
+						<bidProgrsStatus>개찰 </bidProgrsStatus>
+						<tndrCtrctMedCd>제한경쟁 </tndrCtrctMedCd>
+						<tndrbidRegDt>20261001 </tndrbidRegDt>
+						<presmtPrc>29020718 </presmtPrc>
+						<addtTax>2902072 </addtTax>
+						<designPrc>31922790 </designPrc>
+						<fdmtlAmt>31923000 </fdmtlAmt>
+						<sunjungNm>이행능력심사 </sunjungNm>
+						<gongdongNm>공동수급불허 </gongdongNm>
+						<cooperdocAcptEndDtm>  </cooperdocAcptEndDtm>
+						<tndrdocAcptBgninDtm>2026/10/01 14:00 </tndrdocAcptBgninDtm>
+						<tndrdocAcptEndDtm>2026/10/12 10:00 </tndrdocAcptEndDtm>
+						<openDtm>2026/10/12 11:00 </openDtm>
+						<zoneRstrct1>  </zoneRstrct1>
+						<zoneRstrct2>  </zoneRstrct2>
+						<zoneRstrct3>  </zoneRstrct3>
+						<zoneRstrct4>  </zoneRstrct4>
+						<vndrrstrctNm1>  </vndrrstrctNm1>
+						<vndrrstrctNm2>  </vndrrstrctNm2>
+						<vndrrstrctNm3>  </vndrrstrctNm3>
+						<vndrrstrctNm4>  </vndrrstrctNm4>
+						
+						<req1MvgbNm>  </req1MvgbNm>		
+						
+						<req1Reqlic1Nm>  </req1Reqlic1Nm>
+						
+						
+						<req1Reqlic2Nm>  </req1Reqlic2Nm>
+												
+						
+						<req1Reqlic3Nm>  </req1Reqlic3Nm>
+						
+						
+						<req1Reqlic4Nm>  </req1Reqlic4Nm>
+						
+						
+						<req1Reqlic5Nm>  </req1Reqlic5Nm>
+						
+						
+						<req1Reqlic6Nm>  </req1Reqlic6Nm>
+						
+						
+						<req1Reqlic7Nm>  </req1Reqlic7Nm>
+												
+						
+						<req1Reqlic8Nm>  </req1Reqlic8Nm>
+						
+						
+						<req1Reqlic9Nm>  </req1Reqlic9Nm>
+						
+						
+						<req1Reqlic10Nm>  </req1Reqlic10Nm>
+						
+						<req1LicctNm>  </req1LicctNm>
+						<req1BsncatGrpNm>  </req1BsncatGrpNm>																																																						
+						<req1LicGbNm>  </req1LicGbNm>
+
+						<req2MvgbNm>  </req2MvgbNm>		
+						
+						<req2Reqlic1Nm>  </req2Reqlic1Nm>
+						
+						
+						<req2Reqlic2Nm>  </req2Reqlic2Nm>
+												
+						
+						<req2Reqlic3Nm>  </req2Reqlic3Nm>
+						
+						
+						<req2Reqlic4Nm>  </req2Reqlic4Nm>
+						
+						
+						<req2Reqlic5Nm>  </req2Reqlic5Nm>
+						
+						
+						<req2Reqlic6Nm>  </req2Reqlic6Nm>
+						
+						
+						<req2Reqlic7Nm>  </req2Reqlic7Nm>
+												
+						
+						<req2Reqlic8Nm>  </req2Reqlic8Nm>
+						
+						
+						<req2Reqlic9Nm>  </req2Reqlic9Nm>
+						
+						
+						<req2Reqlic10Nm>  </req2Reqlic10Nm>
+						
+						<req2LicctNm>  </req2LicctNm>
+						<req2BsncatGrpNm>  </req2BsncatGrpNm>																																																						
+						<req2LicGbNm>  </req2LicGbNm>
+
+						<req3MvgbNm>  </req3MvgbNm>		
+						
+						<req3Reqlic1Nm>  </req3Reqlic1Nm>
+						
+						
+						<req3Reqlic2Nm>  </req3Reqlic2Nm>
+												
+						
+						<req3Reqlic3Nm>  </req3Reqlic3Nm>
+						
+						
+						<req3Reqlic4Nm>  </req3Reqlic4Nm>
+						
+						
+						<req3Reqlic5Nm>  </req3Reqlic5Nm>
+						
+						
+						<req3Reqlic6Nm>  </req3Reqlic6Nm>
+						
+						
+						<req3Reqlic7Nm>  </req3Reqlic7Nm>
+												
+						
+						<req3Reqlic8Nm>  </req3Reqlic8Nm>
+						
+						
+						<req3Reqlic9Nm>  </req3Reqlic9Nm>
+						
+						
+						<req3Reqlic10Nm>  </req3Reqlic10Nm>
+						
+						<req3LicctNm>  </req3LicctNm>
+						<req3BsncatGrpNm>  </req3BsncatGrpNm>																																																						
+						<req3LicGbNm>  </req3LicGbNm>
+
+						<req4MvgbNm>  </req4MvgbNm>		
+						
+						<req4Reqlic1Nm>  </req4Reqlic1Nm>
+						
+						
+						<req4Reqlic2Nm>  </req4Reqlic2Nm>
+												
+						
+						<req4Reqlic3Nm>  </req4Reqlic3Nm>
+						
+						
+						<req4Reqlic4Nm>  </req4Reqlic4Nm>
+						
+						
+						<req4Reqlic5Nm>  </req4Reqlic5Nm>
+						
+						
+						<req4Reqlic6Nm>  </req4Reqlic6Nm>
+						
+						
+						<req4Reqlic7Nm>  </req4Reqlic7Nm>
+												
+						
+						<req4Reqlic8Nm>  </req4Reqlic8Nm>
+						
+						
+						<req4Reqlic9Nm>  </req4Reqlic9Nm>
+						
+						
+						<req4Reqlic10Nm>  </req4Reqlic10Nm>
+						
+						<req4LicctNm>  </req4LicctNm>
+						<req4BsncatGrpNm>  </req4BsncatGrpNm>																																																						
+						<req4LicGbNm>  </req4LicGbNm>
+
+						<req5MvgbNm>  </req5MvgbNm>		
+						
+						<req5Reqlic1Nm>  </req5Reqlic1Nm>
+						
+						
+						<req5Reqlic2Nm>  </req5Reqlic2Nm>
+												
+						
+						<req5Reqlic3Nm>  </req5Reqlic3Nm>
+						
+						
+						<req5Reqlic4Nm>  </req5Reqlic4Nm>
+						
+						
+						<req5Reqlic5Nm>  </req5Reqlic5Nm>
+						
+						
+						<req5Reqlic6Nm>  </req5Reqlic6Nm>
+						
+						
+						<req5Reqlic7Nm>  </req5Reqlic7Nm>
+												
+						
+						<req5Reqlic8Nm>  </req5Reqlic8Nm>
+						
+						
+						<req5Reqlic9Nm>  </req5Reqlic9Nm>
+						
+						
+						<req5Reqlic10Nm>  </req5Reqlic10Nm>
+						
+						<req5LicctNm>  </req5LicctNm>
+						<req5BsncatGrpNm>  </req5BsncatGrpNm>																																																						
+						<req5LicGbNm>  </req5LicGbNm>
+
+						<req6MvgbNm>  </req6MvgbNm>		
+						
+						<req6Reqlic1Nm>  </req6Reqlic1Nm>
+						
+						
+						<req6Reqlic2Nm>  </req6Reqlic2Nm>
+												
+						
+						<req6Reqlic3Nm>  </req6Reqlic3Nm>
+						
+						
+						<req6Reqlic4Nm>  </req6Reqlic4Nm>
+						
+						
+						<req6Reqlic5Nm>  </req6Reqlic5Nm>
+						
+						
+						<req6Reqlic6Nm>  </req6Reqlic6Nm>
+						
+						
+						<req6Reqlic7Nm>  </req6Reqlic7Nm>
+												
+						
+						<req6Reqlic8Nm>  </req6Reqlic8Nm>
+						
+						
+						<req6Reqlic9Nm>  </req6Reqlic9Nm>
+						
+						
+						<req6Reqlic10Nm>  </req6Reqlic10Nm>
+						
+						<req6LicctNm>  </req6LicctNm>
+						<req6BsncatGrpNm>  </req6BsncatGrpNm>																																																						
+						<req6LicGbNm>  </req6LicGbNm>
+
+						<req7MvgbNm>  </req7MvgbNm>		
+						
+						<req7Reqlic1Nm>  </req7Reqlic1Nm>
+						
+						
+						<req7Reqlic2Nm>  </req7Reqlic2Nm>
+												
+						
+						<req7Reqlic3Nm>  </req7Reqlic3Nm>
+						
+						
+						<req7Reqlic4Nm>  </req7Reqlic4Nm>
+						
+						
+						<req7Reqlic5Nm>  </req7Reqlic5Nm>
+						
+						
+						<req7Reqlic6Nm>  </req7Reqlic6Nm>
+						
+						
+						<req7Reqlic7Nm>  </req7Reqlic7Nm>
+												
+						
+						<req7Reqlic8Nm>  </req7Reqlic8Nm>
+						
+						
+						<req7Reqlic9Nm>  </req7Reqlic9Nm>
+						
+						
+						<req7Reqlic10Nm>  </req7Reqlic10Nm>
+						
+						<req7LicctNm>  </req7LicctNm>
+						<req7BsncatGrpNm>  </req7BsncatGrpNm>																																																						
+						<req7LicGbNm>  </req7LicGbNm>
+
+						<req8MvgbNm>  </req8MvgbNm>		
+						
+						<req8Reqlic1Nm>  </req8Reqlic1Nm>
+						
+						
+						<req8Reqlic2Nm>  </req8Reqlic2Nm>
+												
+						
+						<req8Reqlic3Nm>  </req8Reqlic3Nm>
+						
+						
+						<req8Reqlic4Nm>  </req8Reqlic4Nm>
+						
+						
+						<req8Reqlic5Nm>  </req8Reqlic5Nm>
+						
+						
+						<req8Reqlic6Nm>  </req8Reqlic6Nm>
+						
+						
+						<req8Reqlic7Nm>  </req8Reqlic7Nm>
+												
+						
+						<req8Reqlic8Nm>  </req8Reqlic8Nm>
+						
+						
+						<req8Reqlic9Nm>  </req8Reqlic9Nm>
+						
+						
+						<req8Reqlic10Nm>  </req8Reqlic10Nm>
+						
+						<req8LicctNm>  </req8LicctNm>
+						<req8BsncatGrpNm>  </req8BsncatGrpNm>																																																						
+						<req8LicGbNm>  </req8LicGbNm>
+
+						<req9MvgbNm>  </req9MvgbNm>		
+						
+						<req9Reqlic1Nm>  </req9Reqlic1Nm>
+						
+						
+						<req9Reqlic2Nm>  </req9Reqlic2Nm>
+												
+						
+						<req9Reqlic3Nm>  </req9Reqlic3Nm>
+						
+						
+						<req9Reqlic4Nm>  </req9Reqlic4Nm>
+						
+						
+						<req9Reqlic5Nm>  </req9Reqlic5Nm>
+						
+						
+						<req9Reqlic6Nm>  </req9Reqlic6Nm>
+						
+						
+						<req9Reqlic7Nm>  </req9Reqlic7Nm>
+												
+						
+						<req9Reqlic8Nm>  </req9Reqlic8Nm>
+						
+						
+						<req9Reqlic9Nm>  </req9Reqlic9Nm>
+						
+						
+						<req9Reqlic10Nm>  </req9Reqlic10Nm>
+						
+						<req9LicctNm>  </req9LicctNm>
+						<req9BsncatGrpNm>  </req9BsncatGrpNm>																																																						
+						<req9LicGbNm>  </req9LicGbNm>
+
+						<req10MvgbNm>  </req10MvgbNm>		
+						
+						<req10Reqlic1Nm>  </req10Reqlic1Nm>
+						
+						
+						<req10Reqlic2Nm>  </req10Reqlic2Nm>
+												
+						
+						<req10Reqlic3Nm>  </req10Reqlic3Nm>
+						
+						
+						<req10Reqlic4Nm>  </req10Reqlic4Nm>
+						
+						
+						<req10Reqlic5Nm>  </req10Reqlic5Nm>
+						
+						
+						<req10Reqlic6Nm>  </req10Reqlic6Nm>
+						
+						
+						<req10Reqlic7Nm>  </req10Reqlic7Nm>
+												
+						
+						<req10Reqlic8Nm>  </req10Reqlic8Nm>
+						
+						
+						<req10Reqlic9Nm>  </req10Reqlic9Nm>
+						
+						
+						<req10Reqlic10Nm>  </req10Reqlic10Nm>
+						
+						<req10LicctNm>  </req10LicctNm>
+						<req10BsncatGrpNm>  </req10BsncatGrpNm>																																																						
+						<req10LicGbNm>  </req10LicGbNm>
+						
+						<prcscoreExclusAmt>0 </prcscoreExclusAmt>
+						
+						
+						<antbsncatRstrctFg>  </antbsncatRstrctFg>
+						
+		 		</item>
+	     
+		 		<numOfRows>2</numOfRows>
+		 		<pageNo>1</pageNo>
+		 		<totalCount>93</totalCount>
+		</body>
+	
+	</response>

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+
+
+
+
+
+
+<response>
+	<header>
+		<resultCode>00</resultCode>
+		<resultMsg>NORMAL SERVICE.</resultMsg>
+	</header>
+	<body>
+		<items>
+
+		
+			<item>
+				<NOTICE_CODE>2026101220</NOTICE_CODE>
+				<NOTICE_NAME>송도~학익(옹암교)구간 공유수면 배관심도 확보공사 해양환경보전방안 검토용역</NOTICE_NAME>
+				<BID_TYPE_NAME>전자입찰</BID_TYPE_NAME>
+				<WORK_TYPE_NAME>용역</WORK_TYPE_NAME>
+				<CONT_METHOD_NAME>지명경쟁</CONT_METHOD_NAME>
+				<NOTICE_DT>2026-10-12</NOTICE_DT>
+				<END_DT>2026-10-19 09:00</END_DT>
+				<OPEN_DT>2026-10-19 09:01</OPEN_DT>
+				<CANCEL_YN></CANCEL_YN>
+
+				<SUCCESS_CORP_NAME></SUCCESS_CORP_NAME>
+				<SUCCESS_CORP_CODE></SUCCESS_CORP_CODE>
+				<SUCCESS_AMT></SUCCESS_AMT>
+				<SUCCESS_RATE></SUCCESS_RATE>
+				<SUCCESS_DT></SUCCESS_DT>
+			</item>
+
+		
+			<item>
+				<NOTICE_CODE>2026101221</NOTICE_CODE>
+				<NOTICE_NAME>1,2부두 갱웨이 출입문 개선공사</NOTICE_NAME>
+				<BID_TYPE_NAME>전자입찰</BID_TYPE_NAME>
+				<WORK_TYPE_NAME>공사</WORK_TYPE_NAME>
+				<CONT_METHOD_NAME>지명경쟁</CONT_METHOD_NAME>
+				<NOTICE_DT>2026-10-12</NOTICE_DT>
+				<END_DT>2026-10-19 10:00</END_DT>
+				<OPEN_DT>2026-10-19 10:02</OPEN_DT>
+				<CANCEL_YN></CANCEL_YN>
+
+				<SUCCESS_CORP_NAME></SUCCESS_CORP_NAME>
+				<SUCCESS_CORP_CODE></SUCCESS_CORP_CODE>
+				<SUCCESS_AMT></SUCCESS_AMT>
+				<SUCCESS_RATE></SUCCESS_RATE>
+				<SUCCESS_DT></SUCCESS_DT>
+			</item>
+
+		
+		</items>
+		<numOfRows>2</numOfRows>
+		<pageNo>1</pageNo>
+		<totalCount>79</totalCount>
+	</body>
+</response>
+
+

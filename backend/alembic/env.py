@@ -13,6 +13,11 @@ from app.models.bid import (
     DataSyncLog,
     UserLocation,
 )
+from app.models.external_bid import (
+    ExternalBidNotice,
+    ExternalBidResult,
+    ExternalSyncLog,
+)
 from app.models.user import (
     BookmarkDashboardItem,
     SavedSearch,

@@ -1,0 +1,5 @@
+# LH 입찰공고 API 응답 픽스처는 EUC-KR 이다 (유효한 UTF-8 이 아님).
+# binary 로 선언하지 않으면 텍스트로 취급되어 diff 가 깨지고, 스테이징 내용을
+# 텍스트로 스캔하는 도구들이 멀티바이트 변환 에러로 실패한다.
+# 테스트는 이 파일의 EUC-KR 바이트를 그대로 읽어 디코딩 경로를 검증한다.
+backend/tests/fixtures/external/lh_notices.xml binary
