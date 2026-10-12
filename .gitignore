@@ -50,6 +50,22 @@ test-results/
 *.pyc
 __pycache__
 
+# 도구 캐시 (전부 재생성 가능 — 커밋 금지)
+# 앞에 슬래시가 없으므로 backend/, frontend/ 등 하위 경로에서도 매칭된다.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vite/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+.ipynb_checkpoints/
+
+# Conductor 산출물 (제거됨 — 도구를 다시 돌려도 커밋되지 않도록)
+conductor/
+.conductor/
+
 _입찰/
 .ai/
 data.md
