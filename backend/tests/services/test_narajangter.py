@@ -212,8 +212,58 @@ class TestRequestRotation:
         assert "디코딩" in str(exc.value)
 
     @pytest.mark.asyncio
+    async def test_bare_http_403_rotates_then_succeeds(self, multikey_service):
+        """본문 없는 403 = 해당 서비스에 활용신청 안 된 키 → 다음 키로 넘어간다.
+
+        실측: LOCAL_NARAJANGTER_SERVICE_KEY 로 외부기관 6개 서비스를 호출하면
+        에러 봉투 없이 bare 403 이 온다. 로테이션하지 않으면 폴백이 죽는다.
+        """
+        forbidden = make_mock_response(status_code=403, json_raises=True, text="403")
+        ok = make_mock_response(json_data=make_success_response([{"bidNtceNo": "X"}]))
+
+        with patch_get(forbidden, ok):
+            result = await multikey_service.get_bid_opening_results("X")
+
+        assert len(result) == 1
+        assert multikey_service._active_key_idx == 1
+
+    @pytest.mark.asyncio
+    async def test_bare_http_403_all_keys_raises_with_hint(self, service):
+        forbidden = make_mock_response(status_code=403, json_raises=True, text="403")
+
+        with patch_get(forbidden):
+            with pytest.raises(NaraJangterApiError) as exc:
+                await service.get_bid_opening_results("X")
+
+        assert exc.value.code == "403"
+        assert "활용신청" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_non_403_non_json_still_raises_parse_error(self, service):
+        """403 이 아닌 비-JSON 응답은 기존처럼 PARSE 에러여야 한다 (로테이션 금지)."""
+        broken = make_mock_response(status_code=500, json_raises=True, text="boom")
+
+        with patch_get(broken):
+            with pytest.raises(NaraJangterApiError) as exc:
+                await service.get_bid_opening_results("X")
+
+        assert exc.value.code == "PARSE"
+
+    @pytest.mark.asyncio
     async def test_rate_limit_error_is_api_error_subclass(self):
         assert issubclass(RateLimitError, NaraJangterApiError)
+
+    def test_key_pool_comes_from_shared_settings_pool(self):
+        """나라장터 키 풀은 config 의 공용 풀(LOCAL 폴백 포함)에서 온다."""
+        from types import SimpleNamespace
+
+        fake = SimpleNamespace(
+            data_go_kr_service_keys=["v1", "v2", "local"]
+        )
+        with patch("app.services.narajangter.settings", fake):
+            svc = NaraJangterService()
+
+        assert svc._service_keys == ["v1", "v2", "local"]
 
     def test_key_reset_after_24h(self, multikey_service):
         multikey_service._active_key_idx = 2

@@ -4,6 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from app.core.config import settings
+from app.services.service_key_rotator import (
+    KEY_RESET_SECONDS,
+    NoServiceKeyError,
+    ServiceKeyRotator,
+)
 from app.schemas.bid import (
     BidApiResponse,
     BidAValueItem,
@@ -23,8 +28,7 @@ NO_DATA_CODE = "03"
 RATE_LIMIT_CODES = frozenset({"22"})          # 서비스 요청 제한 횟수 초과
 KEY_PROBLEM_CODES = frozenset({"30", "31", "32"})  # 미등록/만료/IP불일치 키
 
-# 마지막 로테이션 후 이 시간이 지나면 첫 키로 복귀 (일일 한도 리셋 반영).
-KEY_RESET_SECONDS = 24 * 3600
+# KEY_RESET_SECONDS 는 service_key_rotator 에서 re-export (기존 import 경로 유지).
 
 # 공고목록 조회 API 의 조회기간 상한 (실측: 1개월 초과 시 resultCode 07).
 MAX_INQRY_RANGE_DAYS = 31
@@ -111,52 +115,55 @@ class NaraJangterService:
     DEFAULT_TIMEOUT_SECONDS = 30.0
 
     def __init__(self) -> None:
-        # 일일 호출 한도 초과 시 V2 → V3 → V4 로 순차 로테이션.
+        # 일일 호출 한도 초과 시 V2 → V3 → V4 → LOCAL 로 순차 로테이션.
         # 모든 키 소진되면 RateLimitError. KEY_RESET_SECONDS 경과 후 첫 키로 복귀.
-        self._service_keys: List[str] = [
-            k
-            for k in (
-                settings.NARAJANGTER_SERVICE_KEY,
-                settings.NARAJANGTER_SERVICE_KEY_V2,
-                settings.NARAJANGTER_SERVICE_KEY_V3,
-                settings.NARAJANGTER_SERVICE_KEY_V4,
-            )
-            if k
-        ]
-        self._active_key_idx: int = 0
-        self._rotated_at: Optional[datetime] = None
+        # 풀 구성은 config.data_go_kr_service_keys 가 단일 소유 — 외부기관
+        # 소스도 같은 풀을 공유하므로 여기서 재구성하면 드리프트가 생긴다.
+        # 로테이션 상태기계는 ServiceKeyRotator 가 단일 소유 (외부기관
+        # 클라이언트와 규칙을 공유하기 위함).
+        self._rotator = ServiceKeyRotator(settings.data_go_kr_service_keys)
+
+    # -- 로테이터 위임 -------------------------------------------------------
+    # 아래 4개는 ServiceKeyRotator 로 위임한다. 기존 호출부/테스트가 쓰는
+    # 이름을 유지하기 위한 얇은 래퍼일 뿐, 로직은 로테이터에만 존재한다.
+
+    @property
+    def _service_keys(self) -> List[str]:
+        return self._rotator._keys
+
+    @_service_keys.setter
+    def _service_keys(self, keys: List[str]) -> None:
+        self._rotator = ServiceKeyRotator(keys)
+
+    @property
+    def _active_key_idx(self) -> int:
+        return self._rotator.active_idx
+
+    @_active_key_idx.setter
+    def _active_key_idx(self, idx: int) -> None:
+        self._rotator._active_idx = idx
+
+    @property
+    def _rotated_at(self) -> Optional[datetime]:
+        return self._rotator.rotated_at
+
+    @_rotated_at.setter
+    def _rotated_at(self, value: Optional[datetime]) -> None:
+        self._rotator._rotated_at = value
 
     def _active_key(self) -> str:
-        if not self._service_keys:
-            raise NaraJangterApiError(
-                "NARAJANGTER_SERVICE_KEY 가 설정되지 않았습니다", code="CONFIG"
-            )
-        return self._service_keys[self._active_key_idx]
+        try:
+            return self._rotator.active_key()
+        except NoServiceKeyError as exc:
+            raise NaraJangterApiError(str(exc), code="CONFIG") from exc
 
     def _maybe_reset_key(self) -> None:
         """마지막 로테이션 후 24h 경과 시 첫 키로 복귀합니다."""
-        if self._active_key_idx == 0 or self._rotated_at is None:
-            return
-        elapsed = (datetime.now(timezone.utc) - self._rotated_at).total_seconds()
-        if elapsed >= KEY_RESET_SECONDS:
-            logger.info(
-                f"narajangter: {int(elapsed)}s since last rotation, "
-                f"resetting to key index 0"
-            )
-            self._active_key_idx = 0
-            self._rotated_at = None
+        self._rotator.maybe_reset()
 
     def _rotate_key(self) -> bool:
         """다음 키로 전환. 더 이상 사용 가능한 키가 없으면 False."""
-        if self._active_key_idx + 1 >= len(self._service_keys):
-            return False
-        self._active_key_idx += 1
-        self._rotated_at = datetime.now(timezone.utc)
-        logger.warning(
-            f"narajangter: rotating to key index {self._active_key_idx}"
-            f"/{len(self._service_keys) - 1}"
-        )
-        return True
+        return self._rotator.rotate()
 
     BASE_CNST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
     BASE_SERV_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
@@ -229,6 +236,24 @@ class NaraJangterService:
             try:
                 data = response.json()
             except ValueError:
+                data = None
+
+            if data is None:
+                # 에러 봉투 없는 bare 403 = 해당 서비스에 활용신청되지 않은 키.
+                # 다음 키로 넘어가야 폴백 키가 의미를 갖는다. (봉투가 있는
+                # 403 은 아래 KEY_PROBLEM_CODES 경로에서 더 구체적으로 처리됨.)
+                if response.status_code == 403:
+                    logger.warning(
+                        f"{context}: HTTP 403 on key idx {self._active_key_idx}"
+                    )
+                    if self._rotate_key():
+                        continue
+                    raise NaraJangterApiError(
+                        f"{context}: HTTP 403 on all {len(self._service_keys)} "
+                        f"key(s). 해당 서비스에 활용신청되지 않은 키일 수 "
+                        f"있습니다 (data.go.kr 에서 서비스별 활용신청 필요)",
+                        code="403",
+                    )
                 raise NaraJangterApiError(
                     f"{context}: HTTP {response.status_code}, non-JSON body: "
                     f"{response.text[:200]}",
