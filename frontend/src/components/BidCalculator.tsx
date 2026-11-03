@@ -5,11 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BidAValueItem, BidItem, ReserveRateSource } from '@/types/bid';
 import { calculateOptimalBidPrice } from '@/lib/bidCalculations';
-import { downloadDocument } from '@/lib/api';
 import { backendApi } from '@/lib/backendApi';
-import { Download, FileText, Calculator, ExternalLink, Info, Star, CheckCircle } from 'lucide-react';
+import { Calculator, ExternalLink, Info, Star, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import EstimateRateDistributionDialog from '@/components/EstimateRateDistributionDialog';
+import BidAttachmentList from '@/components/BidAttachmentList';
+import BidRegionInfo from '@/components/BidRegionInfo';
 
 
 interface BidCalculatorProps {
@@ -122,17 +123,6 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
     ? Number(((result.optimalBidPrice / result.basisAmount) * 100).toFixed(3))
     : null;
 
-  const documents = [
-    { url: bid.ntceSpecDocUrl1, name: bid.ntceSpecFileNm1 || '공고규격서 1' },
-    { url: bid.ntceSpecDocUrl2, name: bid.ntceSpecFileNm2 || '공고규격서 2' },
-    { url: bid.ntceSpecDocUrl3, name: bid.ntceSpecFileNm3 || '공고규격서 3' },
-    { url: bid.ntceSpecDocUrl4, name: bid.ntceSpecFileNm4 || '공고규격서 4' },
-    { url: bid.ntceSpecDocUrl5, name: bid.ntceSpecFileNm5 || '공고규격서 5' },
-    { url: bid.sptDscrptDocUrl1, name: bid.sptDscrptFileNm1 || '현장설명서 1' },
-    { url: bid.sptDscrptDocUrl2, name: bid.sptDscrptFileNm2 || '현장설명서 2' },
-    { url: bid.sptDscrptDocUrl3, name: bid.sptDscrptFileNm3 || '현장설명서 3' },
-  ].filter((doc) => doc.url);
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -232,26 +222,11 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
             </CardContent>
           </Card>
 
-          {/* 2. 입찰 서류 목록 */}
-          {documents.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-500 px-1">입찰 관련 서류</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {documents.map((doc, index) => (
-                  <Button
-                    key={index}
-                    variant="secondary"
-                    className="h-10 text-xs justify-start bg-gray-100 hover:bg-gray-200"
-                    onClick={() => downloadDocument(doc.url!, doc.name)}
-                  >
-                    <FileText className="mr-2 h-3.5 w-3.5" />
-                    <span className="truncate">{doc.name}</span>
-                    <Download className="ml-auto h-3.5 w-3.5 opacity-50" />
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* 1-1. 가산지역 · 공동도급 의무지역 · 부공종 */}
+          <BidRegionInfo bid={bid} />
+
+          {/* 2. 입찰 서류 목록 (첨부파일 API, 실패 시 공고 원문 서류) */}
+          <BidAttachmentList bid={bid} isOpen={isOpen} />
 
           {/* 3. 투찰가 분석 결과 */}
           <Card className="border-blue-100 shadow-sm">
@@ -366,7 +341,7 @@ export default function BidCalculator({ bid, aValueItem, isOpen, onClose }: BidC
               ) : (
                 <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-center">
                   <p className="text-sm font-semibold text-amber-800 mb-1">추천 불가</p>
-                  <p className="text-sm text-amber-700">{result.error}</p>
+                  <p className="text-sm text-amber-700">{result.ok === false ? result.error : ''}</p>
                 </div>
               )}
             </CardContent>

@@ -14,20 +14,6 @@ export interface BidApiResponse {
   };
 }
 
-export interface BidAValueApiResponse {
-  response: {
-    header: {
-      resultCode: string;
-      resultMsg: string;
-    };
-    body: {
-      items: BidAValueItem[];
-      totalCount: number;
-    };
-  };
-}
-
-
 export interface BidSearchParams {
   inqryDiv: '1' | '2'; // 1:공고게시일시, 2:개찰일시
   inqryBgnDt: string; // YYYYMMDDHHMM
@@ -39,6 +25,9 @@ export interface BidSearchParams {
   presmptPrceEnd?: string; // 추정가격종료
   bidClseExcpYn?: 'Y' | 'N'; // 입찰마감제외여부
   useLocationFilter?: boolean; // 소재지 기준 참가가능지역 필터링
+  incntvRgnOnly?: boolean; // 가산지역에 사용자 소재지가 포함된 공고만 (소재지 등록 필요)
+  jntcontrctDutyRgnOnly?: boolean; // 공동도급의무지역에 사용자 소재지가 포함된 공고만 (소재지 등록 필요)
+  includeSubsiCnstty?: boolean; // 업종 검색 시 부공종까지 포함
   orderBy?: string; // 정렬 컬럼
   orderDir?: 'asc' | 'desc'; // 정렬 방향
   numOfRows?: number;
@@ -94,6 +83,33 @@ export interface BidItem {
   prtcptPsblRgnNms?: string; // 참가가능지역명 (쉼표구분)
   permsnIndstrytyListNms?: string; // 허용업종목록 (쉼표구분)
   indstrytyMfrcFldListNms?: string; // 주력분야목록 (쉼표구분)
+  incntvRgnNms?: string | null; // 가산지역명 (쉼표구분)
+  jntcontrctDutyRgnNms?: string | null; // 공동도급의무지역명 (쉼표구분)
+  rgnDutyJntcontrctRt?: string | null; // 지역의무공동도급비율 (%)
+  subsiCnsttys?: SubsiCnsttyInfo[] | null; // 부공종 목록
+  isIncntvRgnMatch?: boolean | null; // 사용자 소재지가 가산지역에 포함 (null = 소재지 미등록)
+  isJntcontrctDutyRgnMatch?: boolean | null; // 사용자 소재지가 공동도급의무지역에 포함
+}
+
+export interface SubsiCnsttyInfo {
+  nm: string; // 부공종명
+  evlRt?: string | null; // 업종평가비율 (%)
+}
+
+export type BidAttachmentSource = 'ntce' | 'eorder' | 'legacy';
+
+export interface BidAttachment {
+  source: BidAttachmentSource; // ntce: 공고 첨부, eorder: e발주 첨부, legacy: 공고 원문 URL 필드
+  docDivNm: string | null; // 문서구분명 (공고서, 내역서 등)
+  fileNm: string;
+  fileUrl: string;
+  sno: number | null;
+}
+
+export interface BidAttachmentsResponse {
+  bidNtceNo: string;
+  bidNtceOrd: string;
+  items: BidAttachment[];
 }
 
 

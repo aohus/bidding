@@ -8,6 +8,7 @@ import Header from '@/components/Header';
 import ExternalBidPanel from '@/components/ExternalBidPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { backendApi } from '@/lib/backendApi';
+import { inferBidType } from '@/lib/bidType';
 import { AuthService } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useSearchState } from '@/hooks/useSearchState';
@@ -196,6 +197,9 @@ export default function Index() {
             presmptPrceEnd: (saved.priceEnd as string) || undefined,
             bidClseExcpYn: (saved.excludeClosed as 'Y' | 'N') || undefined,
             useLocationFilter: (saved.useLocationFilter as boolean) || undefined,
+            incntvRgnOnly: (saved.incntvRgnOnly as boolean) || undefined,
+            jntcontrctDutyRgnOnly: (saved.jntcontrctDutyRgnOnly as boolean) || undefined,
+            includeSubsiCnstty: (saved.includeSubsiCnstty as boolean) || undefined,
           };
         }
       } catch {
@@ -242,8 +246,7 @@ export default function Index() {
     const toastId = toast.loading('공고 상세 정보를 분석 중입니다...');
 
     try {
-      const bidType = (bid.mainCnsttyNm || bid.cnstrtsiteRgnNm) ? 'cnstwk' : 'servc';
-      const aValueItem = await backendApi.getBidAValue(bid.bidNtceNo, bidType);
+      const aValueItem = await backendApi.getBidAValue(bid.bidNtceNo, inferBidType(bid));
 
       // bssamt가 없으면 백엔드가 공고 API로 bid_notices를 갱신했을 수 있음
       // → bid detail을 다시 fetch하여 asignBdgtAmt 확보
