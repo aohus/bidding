@@ -197,6 +197,18 @@ class TestWindowMarking:
             scheduler,
             "_fetch_license_limits",
             AsyncMock(return_value=results["licenses"]),
+        ), patch.object(
+            scheduler,
+            "_fetch_incntv_rgns",
+            AsyncMock(return_value=results.get("incntv", (0, True, 0))),
+        ), patch.object(
+            scheduler,
+            "_fetch_jntcontrct_duty_rgns",
+            AsyncMock(return_value=results.get("jntcontrct", (0, True, 0))),
+        ), patch.object(
+            scheduler,
+            "_fetch_subsi_cnsttys",
+            AsyncMock(return_value=results.get("subsi", (0, True, 0))),
         ), patch(
             "app.services.bid_data_service.bid_data_service.mark_window_synced",
             mark,
@@ -224,6 +236,53 @@ class TestWindowMarking:
         args = mark.await_args.args
         assert args[1] == "202608040000"
         assert args[2] == "202608042359"
+
+    @pytest.mark.asyncio
+    async def test_passes_sub_dataset_counts_and_api_calls(
+        self, scheduler, fake_sessions
+    ):
+        mark = AsyncMock()
+        calls = await self._run_window(
+            scheduler,
+            fake_sessions,
+            {
+                "notices": [(10, True, 1), (5, True, 1)],
+                "regions": (20, True, 1),
+                "licenses": (30, True, 1),
+                "incntv": (4, True, 1),
+                "jntcontrct": (5, True, 1),
+                "subsi": (6, True, 2),
+            },
+            mark,
+        )
+
+        assert calls == 4 + 1 + 1 + 2
+        assert mark.await_args.args[3:6] == (15, 20, 30)
+        assert mark.await_args.kwargs == {
+            "total_incntv_rgns": 4,
+            "total_jntcontrct_duty_rgns": 5,
+            "total_subsi_cnsttys": 6,
+            "sub_datasets_synced": True,
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing", ["incntv", "jntcontrct", "subsi"])
+    async def test_sub_dataset_failure_does_not_block_window_mark(
+        self, scheduler, fake_sessions, failing
+    ):
+        """신규 오퍼레이션 하나(예: 403)가 공고 윈도우 마킹 전체를 막으면 안 된다."""
+        mark = AsyncMock()
+        results = {
+            "notices": [(10, True, 1), (5, True, 1)],
+            "regions": (20, True, 1),
+            "licenses": (30, True, 1),
+            failing: (0, False, 1),
+        }
+        await self._run_window(scheduler, fake_sessions, results, mark)
+
+        assert mark.await_count == 1
+        assert mark.await_args.kwargs["sub_datasets_synced"] is False
+        assert scheduler._failed_windows == []
 
     @pytest.mark.asyncio
     async def test_does_not_mark_when_license_fetch_fails(
@@ -395,3 +454,167 @@ class TestRateLimitAbortsCycle:
             await scheduler.sync_recent_data(days=3)
 
         assert alert.await_count == 1
+
+
+class TestSubDatasetFetchWrappers:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "method,fetch_name,save_name",
+        [
+            ("_fetch_incntv_rgns", "get_incntv_rgn_by_date", "save_incntv_rgns"),
+            (
+                "_fetch_jntcontrct_duty_rgns",
+                "get_jntcontrct_duty_rgn_by_date",
+                "save_jntcontrct_duty_rgns",
+            ),
+            ("_fetch_subsi_cnsttys", "get_subsi_cnstty_by_date", "save_subsi_cnsttys"),
+        ],
+    )
+    async def test_wrapper_pages_and_saves(
+        self, scheduler, method, fetch_name, save_name
+    ):
+        fetch = AsyncMock(return_value=[object(), object()])
+        save = AsyncMock()
+        with patch(
+            f"app.services.bid_sync_scheduler.narajangter_service.{fetch_name}",
+            fetch,
+        ), patch(
+            f"app.services.bid_sync_scheduler.bid_data_service.{save_name}", save
+        ):
+            total, ok, calls = await getattr(scheduler, method)(
+                "db", "202608040000", "202608042359"
+            )
+
+        assert (total, ok, calls) == (2, True, 1)
+        fetch.assert_awaited_once_with("202608040000", "202608042359", 1)
+        save.assert_awaited_once()
+
+
+
+# ---------------------------------------------------------------------------
+# 부속 데이터셋 재시도 단계
+# ---------------------------------------------------------------------------
+
+DAILY = ("202608040000", "202608042359")
+
+
+class TestSubDatasetRetry:
+    def _patch(self, scheduler, fake_sessions, windows, **fetch):
+        mark = AsyncMock()
+        stack = [
+            patch("app.services.bid_sync_scheduler.AsyncSessionLocal", fake_sessions),
+            patch(
+                "app.services.bid_data_service.bid_data_service."
+                "list_windows_pending_sub_datasets",
+                AsyncMock(return_value=windows),
+            ),
+            patch(
+                "app.services.bid_data_service.bid_data_service."
+                "mark_sub_datasets_synced",
+                mark,
+            ),
+            patch("app.services.bid_sync_scheduler.asyncio.sleep", AsyncMock()),
+        ]
+        for name, rv in (
+            ("_fetch_incntv_rgns", fetch.get("incntv", (1, True, 1))),
+            ("_fetch_jntcontrct_duty_rgns", fetch.get("jntcontrct", (2, True, 1))),
+            ("_fetch_subsi_cnsttys", fetch.get("subsi", (3, True, 1))),
+        ):
+            if isinstance(rv, list):
+                stack.append(patch.object(scheduler, name, AsyncMock(side_effect=rv)))
+            else:
+                stack.append(patch.object(scheduler, name, AsyncMock(return_value=rv)))
+        return mark, stack
+
+    async def _run(self, scheduler, fake_sessions, windows, api_calls=0, **fetch):
+        from contextlib import ExitStack
+
+        mark, stack = self._patch(scheduler, fake_sessions, windows, **fetch)
+        with ExitStack() as es:
+            for p in stack:
+                es.enter_context(p)
+            calls = await scheduler._retry_sub_datasets(api_calls)
+        return calls, mark
+
+    @pytest.mark.asyncio
+    async def test_success_sets_flag_with_counts(self, scheduler, fake_sessions):
+        calls, mark = await self._run(scheduler, fake_sessions, [DAILY])
+
+        assert calls == 3
+        assert mark.await_count == 1
+        assert mark.await_args.args[1:3] == DAILY
+        assert mark.await_args.args[3:] == (1, 2, 3)
+
+    @pytest.mark.asyncio
+    async def test_failure_stops_retry_step_for_this_run(
+        self, scheduler, fake_sessions
+    ):
+        w2 = ("202608030000", "202608032359")
+        calls, mark = await self._run(
+            scheduler, fake_sessions, [DAILY, w2], subsi=(0, False, 1)
+        )
+
+        assert mark.await_count == 0
+        assert calls == 3  # 두 번째 윈도우는 시도하지 않음
+        assert scheduler._failed_windows == []
+
+    @pytest.mark.asyncio
+    async def test_respects_api_call_budget(self, scheduler, fake_sessions):
+        calls, mark = await self._run(
+            scheduler,
+            fake_sessions,
+            [DAILY],
+            api_calls=BidDataSyncScheduler.MAX_API_CALLS_PER_RUN,
+        )
+        assert mark.await_count == 0
+        assert calls == BidDataSyncScheduler.MAX_API_CALLS_PER_RUN
+
+    @pytest.mark.asyncio
+    async def test_stops_between_windows_when_budget_exhausted(
+        self, scheduler, fake_sessions
+    ):
+        w2 = ("202608030000", "202608032359")
+        calls, mark = await self._run(
+            scheduler,
+            fake_sessions,
+            [DAILY, w2],
+            api_calls=BidDataSyncScheduler.MAX_API_CALLS_PER_RUN - 3,
+        )
+        assert mark.await_count == 1
+        assert calls == BidDataSyncScheduler.MAX_API_CALLS_PER_RUN
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_propagates(self, scheduler, fake_sessions):
+        with pytest.raises(RateLimitError):
+            await self._run(
+                scheduler,
+                fake_sessions,
+                [DAILY],
+                incntv=[RateLimitError("x", code="22")],
+            )
+
+    @pytest.mark.asyncio
+    async def test_cycle_runs_retry_step_after_backfill(self, scheduler):
+        order = []
+
+        def step(name, ret):
+            async def run(_calls):
+                order.append(name)
+                return ret
+
+            return run
+
+        with patch.object(
+            scheduler, "_sync_recent_hours", AsyncMock(side_effect=step("h", 1))
+        ), patch.object(
+            scheduler, "_backfill_past_days", AsyncMock(side_effect=step("b", 2))
+        ), patch.object(
+            scheduler, "_retry_sub_datasets", AsyncMock(side_effect=step("r", 3))
+        ) as retry, patch.object(
+            scheduler, "_sync_reserve_prices", AsyncMock()
+        ) as reserve:
+            await scheduler._run_sync_cycle()
+
+        assert order == ["h", "b", "r"]
+        retry.assert_awaited_once_with(2)
+        reserve.assert_awaited_once_with(3)

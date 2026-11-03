@@ -5,6 +5,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BidItem } from '@/types/bid';
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, Heart, CheckCircle2 } from 'lucide-react';
 
+// 공동도급 의무지역 배지의 상세 텍스트 (title 툴팁과 스크린리더용 sr-only 텍스트에 공용)
+const jntcontrctDutyRgnDetail = (bid: BidItem): string => {
+  if (!bid.jntcontrctDutyRgnNms) return '';
+  return bid.rgnDutyJntcontrctRt
+    ? `${bid.jntcontrctDutyRgnNms} (${bid.rgnDutyJntcontrctRt}%)`
+    : bid.jntcontrctDutyRgnNms;
+};
+
 export interface BookmarkInfo {
   status: string;
   bookmarkId: string;
@@ -230,6 +238,32 @@ export default function BidTable({
                         {bid.dminsttNm && bid.dminsttNm !== bid.ntceInsttNm && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                             수요: {bid.dminsttNm}
+                          </Badge>
+                        )}
+                        {bid.isIncntvRgnMatch && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 border-emerald-300 bg-emerald-50 text-emerald-700"
+                            title={bid.incntvRgnNms ? `가산지역: ${bid.incntvRgnNms}` : '가산지역'}
+                          >
+                            가산지역
+                            {bid.incntvRgnNms && <span className="sr-only">: {bid.incntvRgnNms}</span>}
+                          </Badge>
+                        )}
+                        {bid.isJntcontrctDutyRgnMatch && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 border-violet-300 bg-violet-50 text-violet-700"
+                            title={
+                              jntcontrctDutyRgnDetail(bid)
+                                ? `공동도급 의무지역: ${jntcontrctDutyRgnDetail(bid)}`
+                                : '공동도급 의무지역'
+                            }
+                          >
+                            공동도급 의무
+                            {jntcontrctDutyRgnDetail(bid) && (
+                              <span className="sr-only">: {jntcontrctDutyRgnDetail(bid)}</span>
+                            )}
                           </Badge>
                         )}
                       </div>

@@ -69,10 +69,10 @@ class TestConstants:
         PPSSrch 는 inqryDiv=2 가 '개찰일시'이고 bidNtceNo 를 무시한다.
         """
         assert NaraJangterService.PLAIN_CNST_URL.endswith(
-            "getBidPblancListInfoCnstwk"
+            "getBidPblancListInfoCnstwk02"
         )
         assert NaraJangterService.PLAIN_SERV_URL.endswith(
-            "getBidPblancListInfoServc"
+            "getBidPblancListInfoServc02"
         )
         assert "PPSSrch" not in NaraJangterService.PLAIN_CNST_URL
         assert "PPSSrch" not in NaraJangterService.PLAIN_SERV_URL
@@ -151,6 +151,38 @@ class TestItemsOf:
 # ---------------------------------------------------------------------------
 # _request — 키 로테이션 / 에러 분류
 # ---------------------------------------------------------------------------
+
+class TestRequestDoesNotLeakServiceKey:
+    @pytest.mark.asyncio
+    async def test_transport_error_message_and_chain_are_redacted(self, service):
+        import httpx
+
+        err = httpx.ConnectError("boom https://h/x?ServiceKey=key1&a=1")
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=err):
+            with pytest.raises(NaraJangterApiError) as exc:
+                await service.get_bid_opening_results("X")
+
+        assert "key1" not in str(exc.value)
+        assert "ConnectError" in str(exc.value)
+        assert exc.value.__cause__ is None
+
+    @pytest.mark.asyncio
+    async def test_non_json_body_is_redacted(self, service):
+        resp = make_mock_response(status_code=500, text="oops ?ServiceKey=key1&x")
+        resp.json.side_effect = ValueError("no json")
+        with patch_get(resp):
+            with pytest.raises(NaraJangterApiError) as exc:
+                await service.get_bid_opening_results("X")
+        assert "key1" not in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_envelope_message_is_redacted(self, service):
+        bad = make_mock_response(json_data=make_error_response("99", "echo ServiceKey=key1"))
+        with patch_get(bad):
+            with pytest.raises(NaraJangterApiError) as exc:
+                await service.get_bid_opening_results("X")
+        assert "key1" not in str(exc.value)
+
 
 class TestRequestRotation:
     @pytest.mark.asyncio
@@ -741,3 +773,225 @@ class TestSearchBids:
             result = await service.search_bids("contract", self._params())
         assert result.items == []
         assert result.totalCount == 0
+
+
+# ---------------------------------------------------------------------------
+# 02 API 전환: URL 상수
+# ---------------------------------------------------------------------------
+
+BASE_02 = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/"
+
+BID_NOTICE_URL_NAMES = [
+    "BASE_CNST_URL", "BASE_SERV_URL", "PLAIN_CNST_URL", "PLAIN_SERV_URL",
+    "CNSTWK_BSSAMT_URL", "SERVC_BSSAMT_URL", "PRTCPT_PSBL_RGN_URL",
+    "LICENSE_LIMIT_URL", "ATCH_FILE_URL", "EORDER_ATCH_FILE_URL",
+    "INCNTV_RGN_URL", "JNTCONTRCT_DUTY_RGN_URL", "SUBSI_CNSTTY_URL",
+]
+
+
+class TestVersion02Urls:
+    @pytest.mark.parametrize("name", BID_NOTICE_URL_NAMES)
+    def test_bid_notice_urls_use_02_base_https(self, name):
+        url = getattr(NaraJangterService, name)
+        assert url.startswith(BASE_02)
+        assert url.endswith("02")
+
+    def test_url_dict_points_to_02(self):
+        assert NaraJangterService.url_dict["contract"].endswith("CnstwkPPSSrch02")
+        assert NaraJangterService.url_dict["service"].endswith("ServcPPSSrch02")
+
+    def test_scsbid_urls_unchanged(self):
+        base = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/"
+        assert NaraJangterService.OPENG_RESULT_URL == (
+            base + "getOpengResultListInfoOpengCompt"
+        )
+        assert NaraJangterService.CNSTWK_RESERVE_PRICE_URL == (
+            base + "getOpengResultListInfoCnstwkPreparPcDetail"
+        )
+        assert NaraJangterService.SERVC_RESERVE_PRICE_URL == (
+            base + "getOpengResultListInfoServcPreparPcDetail"
+        )
+
+    def test_new_endpoint_names(self):
+        assert NaraJangterService.ATCH_FILE_URL.endswith(
+            "getBidPblancListInfoAtchFileInfo02")
+        assert NaraJangterService.EORDER_ATCH_FILE_URL.endswith(
+            "getBidPblancListInfoEorderAtchFileInfo02")
+        assert NaraJangterService.INCNTV_RGN_URL.endswith(
+            "getBidPblancIncntvRgnListInfo02")
+        assert NaraJangterService.JNTCONTRCT_DUTY_RGN_URL.endswith(
+            "getBidPblancJntcontrctDutyRgnListInfo02")
+        assert NaraJangterService.SUBSI_CNSTTY_URL.endswith(
+            "getBidPblancSubsiCnsttyIndstrytyListInfo02")
+
+
+class TestBsnsDivCd:
+    @pytest.mark.parametrize(
+        "bid_type,expected",
+        [("cnstwk", "3"), ("servc", "5"), ("service", "5"), ("용역", "5"),
+         (None, "3"), ("", "3")],
+    )
+    def test_mapping(self, bid_type, expected):
+        assert NaraJangterService.bsns_div_cd(bid_type) == expected
+
+
+# ---------------------------------------------------------------------------
+# 02 API 전환: 신규 조회 메서드
+# ---------------------------------------------------------------------------
+
+class TestGetAttachmentsByBid:
+    @pytest.mark.asyncio
+    async def test_cnstwk_params_and_parse(self, service):
+        items = [{
+            "bidNtceNo": "B1", "bidNtceOrd": "001", "atchSno": "1",
+            "atchDocDivNm": "공고서", "atchFileNm": "공고문.pdf",
+            "atchFileUrl": "https://www.g2b.go.kr/x",
+        }]
+        resp = make_mock_response(json_data=make_success_response(items))
+        with patch_get(resp) as mock_get:
+            result = await service.get_attachments_by_bid("B1", "001")
+            url = mock_get.call_args[0][0]
+            params = mock_get.call_args[1]["params"]
+
+        assert url == NaraJangterService.ATCH_FILE_URL
+        assert params["inqryDiv"] == 2
+        assert params["bidNtceNo"] == "B1"
+        assert params["bidNtceOrd"] == "001"
+        assert params["bsnsDivCd"] == "3"
+        assert params["numOfRows"] == NaraJangterService.MAX_PAGE_SIZE
+        assert params["type"] == "json"
+        assert result[0].atchFileNm == "공고문.pdf"
+        assert result[0].atchFileUrl == "https://www.g2b.go.kr/x"
+
+    @pytest.mark.asyncio
+    async def test_servc_uses_div_5(self, service):
+        resp = make_mock_response(json_data=make_success_response([]))
+        with patch_get(resp) as mock_get:
+            await service.get_attachments_by_bid("B1", bid_type="servc")
+            params = mock_get.call_args[1]["params"]
+        assert params["bsnsDivCd"] == "5"
+        assert params["bidNtceOrd"] == "000"
+
+    @pytest.mark.asyncio
+    async def test_single_dict_item(self, service):
+        item = {"bidNtceNo": "B1", "bidNtceOrd": "000", "atchFileNm": "a.hwp"}
+        resp = make_mock_response(json_data=make_success_response(item))
+        with patch_get(resp):
+            result = await service.get_attachments_by_bid("B1")
+        assert len(result) == 1 and result[0].atchFileNm == "a.hwp"
+
+    @pytest.mark.asyncio
+    async def test_no_data_returns_empty(self, service):
+        resp = make_mock_response(json_data=make_error_response("03", "NO DATA"))
+        with patch_get(resp):
+            assert await service.get_attachments_by_bid("B1") == []
+
+    @pytest.mark.asyncio
+    async def test_api_error_raises(self, service):
+        resp = make_mock_response(json_data=make_error_response("99", "boom"))
+        with patch_get(resp):
+            with pytest.raises(NaraJangterApiError):
+                await service.get_attachments_by_bid("B1")
+
+
+class TestGetEorderAttachmentsByBid:
+    @pytest.mark.asyncio
+    async def test_params_and_parse(self, service):
+        items = [{
+            "bidNtceNo": "B1", "bidNtceOrd": "000", "atchSno": "1",
+            "eorderDocDivNm": "제안요청서", "eorderAtchFileNm": "rfp.pdf",
+            "eorderAtchFileUrl": "https://e/rfp",
+        }]
+        resp = make_mock_response(json_data=make_success_response(items))
+        with patch_get(resp) as mock_get:
+            result = await service.get_eorder_attachments_by_bid("B1")
+            url = mock_get.call_args[0][0]
+            params = mock_get.call_args[1]["params"]
+
+        assert url == NaraJangterService.EORDER_ATCH_FILE_URL
+        assert params["inqryDiv"] == 2
+        assert params["bidNtceNo"] == "B1"
+        assert params["bidNtceOrd"] == "000"
+        assert "bsnsDivCd" not in params
+        assert result[0].eorderDocDivNm == "제안요청서"
+        assert result[0].eorderAtchFileUrl == "https://e/rfp"
+
+    @pytest.mark.asyncio
+    async def test_single_dict_and_no_data(self, service):
+        item = {"bidNtceNo": "B1", "eorderAtchFileNm": "x"}
+        with patch_get(make_mock_response(json_data=make_success_response(item))):
+            assert len(await service.get_eorder_attachments_by_bid("B1")) == 1
+        with patch_get(make_mock_response(json_data=make_error_response("03", "n"))):
+            assert await service.get_eorder_attachments_by_bid("B1") == []
+
+    @pytest.mark.asyncio
+    async def test_error_raises(self, service):
+        with patch_get(make_mock_response(json_data=make_error_response("99", "e"))):
+            with pytest.raises(NaraJangterApiError):
+                await service.get_eorder_attachments_by_bid("B1")
+
+
+class TestSubDatasetByDateFetchers:
+    CASES = [
+        ("get_incntv_rgn_by_date", "INCNTV_RGN_URL",
+         {"bidNtceNo": "B1", "bidNtceOrd": "000", "sno": "1",
+          "IncntvRgnNm": "부산광역시"},
+         "incntvRgnNm", "부산광역시"),
+        ("get_jntcontrct_duty_rgn_by_date", "JNTCONTRCT_DUTY_RGN_URL",
+         {"bidNtceNo": "B1", "bidNtceOrd": "000", "sno": "1",
+          "rgnDutyJntcontrctRt": "49", "JntcontrctDutyRgnNm": "서울특별시"},
+         "jntcontrctDutyRgnNm", "서울특별시"),
+        ("get_subsi_cnstty_by_date", "SUBSI_CNSTTY_URL",
+         {"bidNtceNo": "B1", "bidNtceOrd": "000", "sno": "1",
+          "subsiCnsttyCd": "4992", "subsiCnsttyNm": "도장",
+          "subsiCnsttyIndstrytyEvlRt": "47"},
+         "subsiCnsttyNm", "도장"),
+    ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method,url_name,item,attr,expected", CASES)
+    async def test_params_and_parse(self, service, method, url_name, item, attr, expected):
+        resp = make_mock_response(json_data=make_success_response([item]))
+        with patch_get(resp) as mock_get:
+            result = await getattr(service, method)(
+                "202601010000", "202601012359", pageNo=2, numOfRows=50
+            )
+            url = mock_get.call_args[0][0]
+            params = mock_get.call_args[1]["params"]
+
+        assert url == getattr(NaraJangterService, url_name)
+        assert params["inqryDiv"] == 1
+        assert params["inqryBgnDt"] == "202601010000"
+        assert params["inqryEndDt"] == "202601012359"
+        assert params["pageNo"] == 2
+        assert params["numOfRows"] == 50
+        assert params["type"] == "json"
+        assert getattr(result[0], attr) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method,url_name,item,attr,expected", CASES)
+    async def test_single_dict_item(self, service, method, url_name, item, attr, expected):
+        resp = make_mock_response(json_data=make_success_response(item))
+        with patch_get(resp) as mock_get:
+            result = await getattr(service, method)("a", "b")
+            params = mock_get.call_args[1]["params"]
+        assert len(result) == 1 and getattr(result[0], attr) == expected
+        assert params["pageNo"] == 1
+        assert params["numOfRows"] == NaraJangterService.MAX_PAGE_SIZE
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method,url_name,item,attr,expected", CASES)
+    async def test_no_data_returns_empty(self, service, method, url_name, item, attr, expected):
+        resp = make_mock_response(json_data=make_error_response("03", "NO DATA"))
+        with patch_get(resp):
+            assert await getattr(service, method)("a", "b") == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method,url_name,item,attr,expected", CASES)
+    async def test_errors_propagate(self, service, method, url_name, item, attr, expected):
+        with patch_get(make_mock_response(json_data=make_error_response("99", "e"))):
+            with pytest.raises(NaraJangterApiError):
+                await getattr(service, method)("a", "b")
+        with patch_get(make_mock_response(status_code=429)):
+            with pytest.raises(RateLimitError):
+                await getattr(service, method)("a", "b")

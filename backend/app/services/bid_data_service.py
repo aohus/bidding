@@ -4,17 +4,21 @@ from typing import List, Optional
 
 KST = timezone(timedelta(hours=9))
 
-from sqlalchemy import BigInteger, and_, cast, exists, func, nullslast, or_, select
+from sqlalchemy import BigInteger, and_, cast, exists, func, nullslast, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.models.bid import (
+    BidAttachment as BidAttachmentCache,
     BidBasisAmount,
+    BidIncntvRgn,
+    BidJntcontrctDutyRgn,
     BidLicenseLimit,
     BidNotice,
     BidPrtcptPsblRgn,
     BidReservePrice,
+    BidSubsiCnstty,
     DataSyncLog,
     UserLocation,
 )
@@ -23,11 +27,23 @@ from app.schemas.bid import (
     BidAValueItem,
     BidItem,
     BidSearchParams,
+    IncntvRgnItem,
+    JntcontrctDutyRgnItem,
     LicenseLimitItem,
     PrtcptPsblRgnItem,
+    SubsiCnsttyInfo,
+    SubsiCnsttyItem,
 )
 
 logger = logging.getLogger(__name__)
+
+ATTACHMENT_CACHE_TTL = timedelta(hours=24)
+ATTACHMENT_EMPTY_CACHE_TTL = timedelta(hours=1)
+ATTACHMENT_FAILED_CACHE_TTL = timedelta(minutes=10)  # API 오류 시 네거티브 캐시
+ATTACHMENT_KIND_API = "api"
+ATTACHMENT_KIND_LEGACY = "legacy"  # API 정상 + 빈 결과 -> 레거시 URL 폴백
+ATTACHMENT_KIND_FAILED = "failed"  # API 오류 -> 레거시 URL 폴백
+DEFAULT_BID_ORD = "000"
 
 
 def normalize_date_str(date_str: Optional[str]) -> str:
@@ -74,6 +90,43 @@ def get_matching_regions(location_name: str) -> List[str]:
     return regions
 
 
+def location_matches(region_name: Optional[str], location_name: str) -> bool:
+    """get_matching_regions + 하위 지역 LIKE 규칙과 동일한 지역 매칭 (Python 판정용)."""
+    if not region_name:
+        return False
+    return (
+        region_name in get_matching_regions(location_name)
+        or region_name.startswith(f"{location_name} ")
+    )
+
+
+def _parse_sno(value: Optional[str], fallback: int = 0) -> int:
+    """sno 를 정수로. 파싱 불가/누락 시 페이지 내 1-based 인덱스(fallback)를 쓴다.
+
+    예전에는 0 으로 수렴해 같은 공고의 여러 행이 PK 충돌로 하나로 합쳐졌다.
+    """
+    try:
+        return int(str(value).strip())
+    except (ValueError, TypeError):
+        logger.debug(f"unparsable sno {value!r}, using page index {fallback}")
+        return fallback
+
+
+def _region_exists(model, name_col, location_name: str):
+    """소재지와 매칭되는 부속 지역 행이 있는 공고 EXISTS 조건 (파라미터 바인딩)."""
+    exact = [r for r in get_matching_regions(location_name) if r]
+    return exists(
+        select(model.bid_ntce_no).where(
+            model.bid_ntce_no == BidNotice.bid_ntce_no,
+            model.bid_ntce_ord == BidNotice.bid_ntce_ord,
+            or_(
+                name_col.in_(exact),
+                name_col.like(f"{escape_like(location_name)} %", escape="\\"),
+            ),
+        )
+    )
+
+
 class BidDataService:
     """DB 기반 입찰 데이터 서비스"""
 
@@ -82,9 +135,19 @@ class BidDataService:
         db: AsyncSession,
         params: BidSearchParams,
         user_id=None,
+        *,
+        created_after: Optional[datetime] = None,
+        order_by_created_at: bool = False,
     ) -> BidApiResponse:
-        """DB에서 입찰공고를 검색합니다."""
+        """DB에서 입찰공고를 검색합니다.
+
+        created_after: 지정 시 BidNotice.created_at(최초 삽입 시각) > 값 인 공고만.
+            알림처럼 "내가 아직 못 본 공고" 를 rgst_dt 와 무관하게 찾을 때 사용.
+        order_by_created_at: True 면 created_at 오름차순 (params.orderBy 무시).
+        """
         query = select(BidNotice)
+        if created_after is not None:
+            query = query.where(BidNotice.created_at > created_after)
 
         # 날짜 범위 필터
         if params.inqryDiv == "1":
@@ -99,8 +162,12 @@ class BidDataService:
         region_conditions = []
         like_conditions = []  # 하위 지역 LIKE 매칭용
 
+        location = (
+            await self.get_user_location(db, user_id) if user_id else None
+        )
+        location_name = location.location_name if location else None
+
         if params.useLocationFilter and user_id:
-            location = await self.get_user_location(db, user_id)
             if location:
                 matching = get_matching_regions(location.location_name)
                 region_conditions = matching
@@ -137,6 +204,22 @@ class BidDataService:
             )
             query = query.where(or_(no_region, has_matching_region))
 
+        # 가산지역 / 공동도급의무지역 필터 (소재지 미등록 시 무시)
+        for flag, label, model, col in (
+            (params.incntvRgnOnly, "incntvRgnOnly", BidIncntvRgn,
+             BidIncntvRgn.incntv_rgn_nm),
+            (params.jntcontrctDutyRgnOnly, "jntcontrctDutyRgnOnly",
+             BidJntcontrctDutyRgn, BidJntcontrctDutyRgn.jntcontrct_duty_rgn_nm),
+        ):
+            if not flag:
+                continue
+            if not location_name:
+                logger.info(
+                    f"{label} ignored: user has no registered location"
+                )
+                continue
+            query = query.where(_region_exists(model, col, location_name))
+
         # 업종명 필터 (면허제한명 + 허용업종목록 기반, EXISTS)
         # 엄격 필터: 지정한 업종에 매칭되는 공고만 남긴다. 허용업종 정보가
         # 아예 없는 공고는 결과에서 제외한다. (참가가능지역 필터는 "전체"
@@ -164,7 +247,26 @@ class BidDataService:
                     or_(*industry_conditions),
                 )
             )
-            query = query.where(has_matching_industry)
+            if params.includeSubsiCnstty:
+                SubAlias = aliased(BidSubsiCnstty)
+                subsi_conditions = [
+                    SubAlias.subsi_cnstty_nm.ilike(
+                        f"%{escape_like(ind)}%", escape="\\"
+                    )
+                    for ind in industries
+                ]
+                has_matching_subsi = exists(
+                    select(SubAlias.bid_ntce_no).where(
+                        SubAlias.bid_ntce_no == BidNotice.bid_ntce_no,
+                        SubAlias.bid_ntce_ord == BidNotice.bid_ntce_ord,
+                        or_(*subsi_conditions),
+                    )
+                )
+                query = query.where(
+                    or_(has_matching_industry, has_matching_subsi)
+                )
+            else:
+                query = query.where(has_matching_industry)
 
         # 추정가격 범위 필터
         if params.presmptPrceBgn:
@@ -207,7 +309,12 @@ class BidDataService:
             ),
         }
         order_col = order_columns.get(params.orderBy or "")
-        if order_col is not None:
+        if order_by_created_at:
+            query = query.order_by(
+                BidNotice.created_at.asc(), BidNotice.bid_ntce_no.asc(),
+                BidNotice.bid_ntce_ord.asc(),
+            )
+        elif order_col is not None:
             if params.orderDir == "asc":
                 query = query.order_by(nullslast(order_col.asc()))
             else:
@@ -220,74 +327,7 @@ class BidDataService:
         result = await db.execute(query)
         notices = result.scalars().all()
 
-        # 참가가능지역 + 허용업종목록을 각 공고에 추가
-        items = []
-        if notices:
-            bid_nos = list({n.bid_ntce_no for n in notices})
-
-            # 참가가능지역 — sort + dedup 으로 결정적 직렬화
-            # (estimate_rate 그룹 키와 동일한 형태여야 매칭됨)
-            rgn_query = select(
-                BidPrtcptPsblRgn.bid_ntce_no,
-                BidPrtcptPsblRgn.prtcpt_psbl_rgn_nm,
-            ).where(
-                BidPrtcptPsblRgn.bid_ntce_no.in_(bid_nos)
-            )
-            rgn_result = await db.execute(rgn_query)
-            rgn_rows = rgn_result.all()
-
-            rgn_map: dict[str, list[str]] = {}
-            for row in rgn_rows:
-                if row[1]:
-                    rgn_map.setdefault(row[0], []).append(row[1])
-            for k in rgn_map:
-                rgn_map[k] = sorted(set(rgn_map[k]))
-
-            # 면허제한명 + 허용업종목록 + 주력분야 — sort + dedup 으로 결정적 직렬화
-            lic_query = select(
-                BidLicenseLimit.bid_ntce_no,
-                BidLicenseLimit.lcns_lmt_nm,
-                BidLicenseLimit.permsn_indstryty_list,
-                BidLicenseLimit.indstryty_mfrc_fld_list,
-            ).where(
-                BidLicenseLimit.bid_ntce_no.in_(bid_nos)
-            )
-            lic_result = await db.execute(lic_query)
-            lic_rows = lic_result.all()
-
-            lic_map: dict[str, list[str]] = {}
-            mfrc_map: dict[str, list[str]] = {}
-            for row in lic_rows:
-                bid_no = row[0]
-                # lcns_lmt_nm: "조경식재ㆍ시설물공사업/4993" → "조경식재ㆍ시설물공사업"
-                if row[1]:
-                    name = row[1].rsplit("/", 1)[0] if "/" in row[1] else row[1]
-                    lic_map.setdefault(bid_no, []).append(name)
-                elif row[2]:
-                    lic_map.setdefault(bid_no, []).append(row[2])
-                # indstryty_mfrc_fld_list: "[1^철근·콘크리트공사]" → "철근·콘크리트공사"
-                if row[3]:
-                    raw = row[3].strip("[]")
-                    fields = [f for f in raw.split("^") if f and not f.isdigit()]
-                    for f in fields:
-                        mfrc_map.setdefault(bid_no, []).append(f)
-            for k in lic_map:
-                lic_map[k] = sorted(set(lic_map[k]))
-            for k in mfrc_map:
-                mfrc_map[k] = sorted(set(mfrc_map[k]))
-
-            for notice in notices:
-                data = dict(notice.data)
-                data["prtcptPsblRgnNms"] = ", ".join(
-                    rgn_map.get(notice.bid_ntce_no, [])
-                )
-                data["permsnIndstrytyListNms"] = ", ".join(
-                    lic_map.get(notice.bid_ntce_no, [])
-                )
-                data["indstrytyMfrcFldListNms"] = ", ".join(
-                    mfrc_map.get(notice.bid_ntce_no, [])
-                )
-                items.append(BidItem(**data))
+        items = await self.enrich_notices(db, notices, location_name)
 
         return BidApiResponse(
             items=items,
@@ -295,6 +335,175 @@ class BidDataService:
             numOfRows=params.numOfRows,
             pageNo=params.pageNo,
         )
+
+    async def max_created_at(
+        self, db: AsyncSession, keys: List[tuple]
+    ) -> Optional[datetime]:
+        """주어진 (공고번호, 차수) 들 중 가장 늦은 created_at (알림 커서용)."""
+        if not keys:
+            return None
+        result = await db.execute(
+            select(func.max(BidNotice.created_at)).where(
+                tuple_(BidNotice.bid_ntce_no, BidNotice.bid_ntce_ord).in_(keys)
+            )
+        )
+        return result.scalar()
+
+    async def enrich_notices(
+        self,
+        db: AsyncSession,
+        notices: list,
+        location_name: Optional[str] = None,
+    ) -> List[BidItem]:
+        """공고 행에 지역/업종/가산지역/공동도급의무지역/부공종 정보를 붙여 BidItem 으로 변환.
+
+        search_from_db 와 상세 조회가 공통으로 사용한다. 조회는 모두 배치 쿼리.
+        location_name 이 None 이면 isIncntvRgnMatch/isJntcontrctDutyRgnMatch 는 None.
+        """
+        if not notices:
+            return []
+        bid_nos = list({n.bid_ntce_no for n in notices})
+        pairs = list({(n.bid_ntce_no, n.bid_ntce_ord) for n in notices})
+
+        # 참가가능지역 — sort + dedup 으로 결정적 직렬화
+        # (estimate_rate 그룹 키와 동일한 형태여야 매칭됨)
+        rgn_query = select(
+            BidPrtcptPsblRgn.bid_ntce_no,
+            BidPrtcptPsblRgn.prtcpt_psbl_rgn_nm,
+        ).where(
+            BidPrtcptPsblRgn.bid_ntce_no.in_(bid_nos)
+        )
+        rgn_result = await db.execute(rgn_query)
+        rgn_rows = rgn_result.all()
+
+        rgn_map: dict[str, list[str]] = {}
+        for row in rgn_rows:
+            if row[1]:
+                rgn_map.setdefault(row[0], []).append(row[1])
+        for k in rgn_map:
+            rgn_map[k] = sorted(set(rgn_map[k]))
+
+        # 면허제한명 + 허용업종목록 + 주력분야 — sort + dedup 으로 결정적 직렬화
+        lic_query = select(
+            BidLicenseLimit.bid_ntce_no,
+            BidLicenseLimit.lcns_lmt_nm,
+            BidLicenseLimit.permsn_indstryty_list,
+            BidLicenseLimit.indstryty_mfrc_fld_list,
+        ).where(
+            BidLicenseLimit.bid_ntce_no.in_(bid_nos)
+        )
+        lic_result = await db.execute(lic_query)
+        lic_rows = lic_result.all()
+
+        lic_map: dict[str, list[str]] = {}
+        mfrc_map: dict[str, list[str]] = {}
+        for row in lic_rows:
+            bid_no = row[0]
+            # lcns_lmt_nm: "조경식재ㆍ시설물공사업/4993" → "조경식재ㆍ시설물공사업"
+            if row[1]:
+                name = row[1].rsplit("/", 1)[0] if "/" in row[1] else row[1]
+                lic_map.setdefault(bid_no, []).append(name)
+            elif row[2]:
+                lic_map.setdefault(bid_no, []).append(row[2])
+            # indstryty_mfrc_fld_list: "[1^철근·콘크리트공사]" → "철근·콘크리트공사"
+            if row[3]:
+                raw = row[3].strip("[]")
+                fields = [f for f in raw.split("^") if f and not f.isdigit()]
+                for f in fields:
+                    mfrc_map.setdefault(bid_no, []).append(f)
+        for k in lic_map:
+            lic_map[k] = sorted(set(lic_map[k]))
+        for k in mfrc_map:
+            mfrc_map[k] = sorted(set(mfrc_map[k]))
+
+        incntv_rows = (await db.execute(
+            select(
+                BidIncntvRgn.bid_ntce_no,
+                BidIncntvRgn.bid_ntce_ord,
+                BidIncntvRgn.incntv_rgn_nm,
+            ).where(
+                tuple_(BidIncntvRgn.bid_ntce_no, BidIncntvRgn.bid_ntce_ord).in_(pairs)
+            )
+        )).all()
+        jnt_rows = (await db.execute(
+            select(
+                BidJntcontrctDutyRgn.bid_ntce_no,
+                BidJntcontrctDutyRgn.bid_ntce_ord,
+                BidJntcontrctDutyRgn.jntcontrct_duty_rgn_nm,
+                BidJntcontrctDutyRgn.rgn_duty_jntcontrct_rt,
+            ).where(
+                tuple_(
+                    BidJntcontrctDutyRgn.bid_ntce_no,
+                    BidJntcontrctDutyRgn.bid_ntce_ord,
+                ).in_(pairs)
+            )
+        )).all()
+        subsi_rows = (await db.execute(
+            select(
+                BidSubsiCnstty.bid_ntce_no,
+                BidSubsiCnstty.bid_ntce_ord,
+                BidSubsiCnstty.sno,
+                BidSubsiCnstty.subsi_cnstty_nm,
+                BidSubsiCnstty.subsi_cnstty_indstryty_evl_rt,
+            ).where(
+                tuple_(BidSubsiCnstty.bid_ntce_no, BidSubsiCnstty.bid_ntce_ord).in_(pairs)
+            )
+        )).all()
+
+        incntv_map: dict[tuple, list[str]] = {}
+        for no, ord_, nm in incntv_rows:
+            if nm:
+                incntv_map.setdefault((no, ord_), []).append(nm)
+        jnt_map: dict[tuple, list[str]] = {}
+        jnt_rate: dict[tuple, str] = {}
+        for no, ord_, nm, rt in jnt_rows:
+            if nm:
+                jnt_map.setdefault((no, ord_), []).append(nm)
+            if rt and (no, ord_) not in jnt_rate:
+                jnt_rate[(no, ord_)] = rt
+        subsi_map: dict[tuple, list[tuple]] = {}
+        for no, ord_, sno, nm, rt in subsi_rows:
+            if nm:
+                subsi_map.setdefault((no, ord_), []).append((sno or 0, nm, rt))
+
+        items: List[BidItem] = []
+        for notice in notices:
+            key = (notice.bid_ntce_no, notice.bid_ntce_ord)
+            data = dict(notice.data)
+            data["prtcptPsblRgnNms"] = ", ".join(
+                rgn_map.get(notice.bid_ntce_no, [])
+            )
+            data["permsnIndstrytyListNms"] = ", ".join(
+                lic_map.get(notice.bid_ntce_no, [])
+            )
+            data["indstrytyMfrcFldListNms"] = ", ".join(
+                mfrc_map.get(notice.bid_ntce_no, [])
+            )
+            incntv_names = sorted(set(incntv_map.get(key, [])))
+            jnt_names = sorted(set(jnt_map.get(key, [])))
+            data["incntvRgnNms"] = ", ".join(incntv_names)
+            data["jntcontrctDutyRgnNms"] = ", ".join(jnt_names)
+            data["rgnDutyJntcontrctRt"] = (
+                jnt_rate.get(key) or data.get("rgnDutyJntcontrctRt")
+            )
+            data["subsiCnsttys"] = [
+                SubsiCnsttyInfo(nm=nm, evlRt=rt)
+                for _, nm, rt in sorted(
+                    subsi_map.get(key, []), key=lambda t: (t[0], t[1])
+                )
+            ]
+            if location_name:
+                data["isIncntvRgnMatch"] = any(
+                    location_matches(n, location_name) for n in incntv_names
+                )
+                data["isJntcontrctDutyRgnMatch"] = any(
+                    location_matches(n, location_name) for n in jnt_names
+                )
+            else:
+                data["isIncntvRgnMatch"] = None
+                data["isJntcontrctDutyRgnMatch"] = None
+            items.append(BidItem(**data))
+        return items
 
     async def save_bid_notices(
         self, db: AsyncSession, items: List[BidItem]
@@ -401,6 +610,142 @@ class BidDataService:
         await db.commit()
         logger.info(f"Saved {saved} license limits to DB")
         return saved
+
+    async def save_incntv_rgns(
+        self, db: AsyncSession, items: List[IncntvRgnItem]
+    ) -> int:
+        """가산지역 데이터를 DB에 저장합니다 (upsert)."""
+        saved = 0
+        for idx, item in enumerate(items, start=1):
+            if not item.bidNtceNo:
+                continue
+            values = dict(
+                bid_ntce_no=item.bidNtceNo,
+                bid_ntce_ord=item.bidNtceOrd or DEFAULT_BID_ORD,
+                sno=_parse_sno(item.sno, idx),
+                incntv_rgn_nm=item.incntvRgnNm,
+                ntce_ntice_dt=item.ntceNticeDt,
+            )
+            await db.execute(self._upsert(BidIncntvRgn, values))
+            saved += 1
+        await db.commit()
+        logger.info(f"Saved {saved} incentive regions to DB")
+        return saved
+
+    async def save_jntcontrct_duty_rgns(
+        self, db: AsyncSession, items: List[JntcontrctDutyRgnItem]
+    ) -> int:
+        """공동도급의무지역 데이터를 DB에 저장합니다 (upsert)."""
+        saved = 0
+        for idx, item in enumerate(items, start=1):
+            if not item.bidNtceNo:
+                continue
+            values = dict(
+                bid_ntce_no=item.bidNtceNo,
+                bid_ntce_ord=item.bidNtceOrd or DEFAULT_BID_ORD,
+                sno=_parse_sno(item.sno, idx),
+                jntcontrct_duty_rgn_nm=item.jntcontrctDutyRgnNm,
+                rgn_duty_jntcontrct_rt=item.rgnDutyJntcontrctRt,
+                ntce_ntice_dt=item.ntceNticeDt,
+            )
+            await db.execute(self._upsert(BidJntcontrctDutyRgn, values))
+            saved += 1
+        await db.commit()
+        logger.info(f"Saved {saved} joint-contract duty regions to DB")
+        return saved
+
+    async def save_subsi_cnsttys(
+        self, db: AsyncSession, items: List[SubsiCnsttyItem]
+    ) -> int:
+        """부공종 데이터를 DB에 저장합니다 (upsert)."""
+        saved = 0
+        for idx, item in enumerate(items, start=1):
+            if not item.bidNtceNo:
+                continue
+            values = dict(
+                bid_ntce_no=item.bidNtceNo,
+                bid_ntce_ord=item.bidNtceOrd or DEFAULT_BID_ORD,
+                sno=_parse_sno(item.sno, idx),
+                subsi_cnstty_cd=item.subsiCnsttyCd,
+                subsi_cnstty_nm=item.subsiCnsttyNm,
+                subsi_cnstty_indstryty_evl_rt=item.subsiCnsttyIndstrytyEvlRt,
+                ntce_ntice_dt=item.ntceNticeDt,
+            )
+            await db.execute(self._upsert(BidSubsiCnstty, values))
+            saved += 1
+        await db.commit()
+        logger.info(f"Saved {saved} subsidiary constructions to DB")
+        return saved
+
+    @staticmethod
+    def _upsert(model, values: dict):
+        """PK(bid_ntce_no, bid_ntce_ord, sno) 기준 upsert 문."""
+        update = {
+            k: v
+            for k, v in values.items()
+            if k not in ("bid_ntce_no", "bid_ntce_ord", "sno")
+        }
+        update["fetched_at"] = func.now()
+        return (
+            insert(model)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=["bid_ntce_no", "bid_ntce_ord", "sno"],
+                set_=update,
+            )
+        )
+
+    async def get_cached_attachments(
+        self, db: AsyncSession, bid_ntce_no: str, bid_ntce_ord: str
+    ) -> Optional[list]:
+        """첨부파일 캐시 조회. TTL 내면 목록(빈 목록 포함), 없거나 만료면 None."""
+        result = await db.execute(
+            select(BidAttachmentCache).where(
+                BidAttachmentCache.bid_ntce_no == bid_ntce_no,
+                BidAttachmentCache.bid_ntce_ord == bid_ntce_ord,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None or row.data is None or row.fetched_at is None:
+            return None
+        kind = getattr(row, "kind", None) or ATTACHMENT_KIND_API
+        if kind == ATTACHMENT_KIND_FAILED:
+            ttl = ATTACHMENT_FAILED_CACHE_TTL
+        elif kind == ATTACHMENT_KIND_LEGACY or not row.data:
+            ttl = ATTACHMENT_EMPTY_CACHE_TTL
+        else:
+            ttl = ATTACHMENT_CACHE_TTL
+        fetched_at = row.fetched_at
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - fetched_at > ttl:
+            return None
+        return row.data
+
+    async def save_attachments_cache(
+        self,
+        db: AsyncSession,
+        bid_ntce_no: str,
+        bid_ntce_ord: str,
+        data: list,
+        kind: str = ATTACHMENT_KIND_API,
+    ) -> None:
+        """첨부파일 목록 캐시를 저장합니다 (upsert). kind 로 TTL 이 결정된다."""
+        stmt = (
+            insert(BidAttachmentCache)
+            .values(
+                bid_ntce_no=bid_ntce_no,
+                bid_ntce_ord=bid_ntce_ord,
+                data=data,
+                kind=kind,
+            )
+            .on_conflict_do_update(
+                index_elements=["bid_ntce_no", "bid_ntce_ord"],
+                set_={"data": data, "kind": kind, "fetched_at": func.now()},
+            )
+        )
+        await db.execute(stmt)
+        await db.commit()
 
     async def save_basis_amount(
         self,
@@ -694,8 +1039,17 @@ class BidDataService:
         total_notices: int,
         total_regions: int,
         total_license_limits: int = 0,
+        *,
+        total_incntv_rgns: int = 0,
+        total_jntcontrct_duty_rgns: int = 0,
+        total_subsi_cnsttys: int = 0,
+        sub_datasets_synced: bool = False,
     ) -> None:
-        """시간 윈도우를 동기화 완료로 마킹합니다."""
+        """시간 윈도우를 동기화 완료로 마킹합니다.
+
+        sub_datasets_synced: 가산지역/공동도급의무지역/부공종 3종 수집 성공 여부.
+        (공고/지역/면허 성공만으로 윈도우는 마킹되고, 3종은 별도 재시도된다.)
+        """
         stmt = (
             insert(DataSyncLog)
             .values(
@@ -704,6 +1058,10 @@ class BidDataService:
                 total_notices=total_notices,
                 total_regions=total_regions,
                 total_license_limits=total_license_limits,
+                total_incntv_rgns=total_incntv_rgns,
+                total_jntcontrct_duty_rgns=total_jntcontrct_duty_rgns,
+                total_subsi_cnsttys=total_subsi_cnsttys,
+                sub_datasets_synced=sub_datasets_synced,
             )
             .on_conflict_do_update(
                 index_elements=["sync_timestamp", "window_end"],
@@ -712,10 +1070,61 @@ class BidDataService:
                     "total_notices": total_notices,
                     "total_regions": total_regions,
                     "total_license_limits": total_license_limits,
+                    "total_incntv_rgns": total_incntv_rgns,
+                    "total_jntcontrct_duty_rgns": total_jntcontrct_duty_rgns,
+                    "total_subsi_cnsttys": total_subsi_cnsttys,
+                    "sub_datasets_synced": sub_datasets_synced,
                 },
             )
         )
         await db.execute(stmt)
+        await db.commit()
+
+    async def list_windows_pending_sub_datasets(
+        self, db: AsyncSession, limit: int, days: int = 30
+    ) -> List[tuple]:
+        """부속 데이터셋 3종이 아직 수집되지 않은 '일별' 윈도우 (최신순).
+
+        일별 윈도우 = 시작이 0000 이고 끝이 2359 (23시 시간별 윈도우는 시작이 2300).
+        반환: [(sync_timestamp, window_end), ...]
+        """
+        cutoff = (datetime.now(KST) - timedelta(days=days)).strftime("%Y%m%d") + "0000"
+        result = await db.execute(
+            select(DataSyncLog.sync_timestamp, DataSyncLog.window_end)
+            .where(
+                DataSyncLog.sub_datasets_synced.is_(False),
+                DataSyncLog.sync_timestamp.like("%0000"),
+                DataSyncLog.window_end.like("%2359"),
+                DataSyncLog.sync_timestamp >= cutoff,
+            )
+            .order_by(DataSyncLog.sync_timestamp.desc())
+            .limit(limit)
+        )
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def mark_sub_datasets_synced(
+        self,
+        db: AsyncSession,
+        sync_timestamp: str,
+        window_end: str,
+        total_incntv_rgns: int,
+        total_jntcontrct_duty_rgns: int,
+        total_subsi_cnsttys: int,
+    ) -> None:
+        """부속 데이터셋 재수집 성공 후 플래그와 건수를 갱신합니다."""
+        await db.execute(
+            update(DataSyncLog)
+            .where(
+                DataSyncLog.sync_timestamp == sync_timestamp,
+                DataSyncLog.window_end == window_end,
+            )
+            .values(
+                sub_datasets_synced=True,
+                total_incntv_rgns=total_incntv_rgns,
+                total_jntcontrct_duty_rgns=total_jntcontrct_duty_rgns,
+                total_subsi_cnsttys=total_subsi_cnsttys,
+            )
+        )
         await db.commit()
 
     async def get_user_location(

@@ -1,6 +1,7 @@
 import { AuthService } from './auth';
 import { buildExternalBidQuery } from './externalBidQuery';
-import { BidSearchParams, BidApiResponse, BidAValueApiResponse, BidAValueItem, BidItem, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus, EstimateRateResponse, EstimateRateDistributionResponse } from '@/types/bid';
+import type { BidType } from './bidType';
+import { BidSearchParams, BidApiResponse, BidAValueItem, BidItem, BidAttachmentsResponse, PrtcptPsblRgnItem, UserLocation, BookmarkWithStatus, BidResultResponse, BusinessProfile, PaginatedBookmarks, BookmarkSortField, BookmarkSortDir, BookmarkOpengStatus, EstimateRateResponse, EstimateRateDistributionResponse } from '@/types/bid';
 import type {
   ExternalBidListResponse,
   ExternalBidSearchInput,
@@ -73,6 +74,9 @@ class BackendApiService {
       presmptPrceEnd: params.presmptPrceEnd,
       bidClseExcpYn: params.bidClseExcpYn,
       useLocationFilter: params.useLocationFilter,
+      incntvRgnOnly: params.incntvRgnOnly,
+      jntcontrctDutyRgnOnly: params.jntcontrctDutyRgnOnly,
+      includeSubsiCnstty: params.includeSubsiCnstty,
       orderBy: params.orderBy,
       orderDir: params.orderDir,
       numOfRows: params.numOfRows || 100,
@@ -122,6 +126,33 @@ class BackendApiService {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || '공고 상세 조회 실패');
+    }
+    return response.json();
+  }
+
+  /**
+   * 공고 첨부파일 목록 (공고 첨부 + e발주 첨부, 실패 시 서버가 legacy URL로 대체).
+   * /bids/{bidNtceNo}/attachments 는 고정 하위 경로라 /bids/{bidNtceNo}/results 등과 충돌하지 않는다.
+   */
+  async getBidAttachments(
+    bidNtceNo: string,
+    bidNtceOrd: string = '000',
+    bidType: BidType = 'cnstwk',
+  ): Promise<BidAttachmentsResponse> {
+    const url = new URL(
+      `${window.location.origin}${API_BASE_URL}/bids/${encodeURIComponent(bidNtceNo)}/attachments`,
+    );
+    url.searchParams.append('bidNtceOrd', bidNtceOrd);
+    url.searchParams.append('bidType', bidType);
+
+    const response = await this.authFetch(url.toString(), {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || '첨부파일 조회 실패');
     }
     return response.json();
   }

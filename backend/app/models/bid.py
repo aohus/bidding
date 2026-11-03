@@ -1,9 +1,10 @@
 import uuid
 
 from app.db.database import Base
-from sqlalchemy import Column, DateTime, Index, Integer, PrimaryKeyConstraint, String, BigInteger, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, PrimaryKeyConstraint, String, BigInteger, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
+from sqlalchemy.sql.expression import false as sa_false
 
 
 class BidNotice(Base):
@@ -13,6 +14,7 @@ class BidNotice(Base):
         Index('ix_bid_notices_rgst_dt', 'rgst_dt'),
         Index('ix_bid_notices_openg_dt', 'openg_dt'),
         Index('ix_bid_notices_bid_close_dt', 'bid_close_dt'),
+        Index('ix_bid_notices_created_at', 'created_at'),
     )
 
     bid_ntce_no = Column(String(50), primary_key=True)
@@ -23,7 +25,13 @@ class BidNotice(Base):
     presmpt_prce = Column(BigInteger)    # 추정가격 (숫자)
     main_cnsty_nm = Column(String(200))  # 주공종명
     data = Column(JSONB, nullable=False) # 전체 BidItem 데이터
-    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())  # upsert 마다 갱신
+    # 최초 삽입 시각. upsert 의 set_ 에 포함하지 않으므로 갱신되지 않는다.
+    # clock_timestamp(): 한 트랜잭션 안의 행끼리도 값이 달라 커서 기반 페이징에 안전.
+    # 알림 중복 방지 기준 (rgst_dt 이후에 늦게 동기화된 공고도 놓치지 않기 위함).
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
 
 
 class BidBasisAmount(Base):
@@ -47,6 +55,70 @@ class BidPrtcptPsblRgn(Base):
     prtcpt_psbl_rgn_nm = Column(String(200), index=True)
     rgst_dt = Column(String(30))
     bsns_div_nm = Column(String(50))
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BidIncntvRgn(Base):
+    """가산지역 정보"""
+    __tablename__ = "bid_incntv_rgns"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord", "sno"),
+    )
+
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    sno = Column(Integer, nullable=False)
+    incntv_rgn_nm = Column(String(200), index=True)
+    ntce_ntice_dt = Column(String(30))
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BidJntcontrctDutyRgn(Base):
+    """공동도급의무지역 정보"""
+    __tablename__ = "bid_jntcontrct_duty_rgns"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord", "sno"),
+    )
+
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    sno = Column(Integer, nullable=False)
+    jntcontrct_duty_rgn_nm = Column(String(200), index=True)
+    rgn_duty_jntcontrct_rt = Column(String(20))
+    ntce_ntice_dt = Column(String(30))
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BidSubsiCnstty(Base):
+    """부공종(부대공사 업종) 정보"""
+    __tablename__ = "bid_subsi_cnsttys"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord", "sno"),
+    )
+
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    sno = Column(Integer, nullable=False)
+    subsi_cnstty_cd = Column(String(20))
+    subsi_cnstty_nm = Column(String(300), index=True)
+    subsi_cnstty_indstryty_evl_rt = Column(String(20))
+    ntce_ntice_dt = Column(String(30))
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class BidAttachment(Base):
+    """첨부파일 목록 캐시 (공고별 온디맨드). data = list[BidAttachment] JSON"""
+    __tablename__ = "bid_attachments"
+    __table_args__ = (
+        PrimaryKeyConstraint("bid_ntce_no", "bid_ntce_ord"),
+    )
+
+    bid_ntce_no = Column(String(50), nullable=False)
+    bid_ntce_ord = Column(String(10), nullable=False, default="000")
+    data = Column(JSONB, nullable=False)
+    # 'api' (API 정상 응답) | 'legacy' (API 정상이나 빈 결과 -> 레거시 URL 폴백)
+    # | 'failed' (API 오류 -> 레거시 폴백, 짧은 TTL 의 네거티브 캐시)
+    kind = Column(String(10), nullable=False, default="api", server_default="api")
     fetched_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -139,4 +211,12 @@ class DataSyncLog(Base):
     total_notices = Column(Integer, default=0)
     total_regions = Column(Integer, default=0)
     total_license_limits = Column(Integer, default=0)
+    total_incntv_rgns = Column(Integer, default=0, server_default="0")
+    total_jntcontrct_duty_rgns = Column(Integer, default=0, server_default="0")
+    total_subsi_cnsttys = Column(Integer, default=0, server_default="0")
+    # 가산지역/공동도급의무지역/부공종 3종이 모두 수집됐는지. 공고/지역/면허
+    # 성공만으로 윈도우를 완료 마킹하고, 부속 데이터셋은 별도 재시도 단계가 처리.
+    sub_datasets_synced = Column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
     synced_at = Column(DateTime(timezone=True), server_default=func.now())

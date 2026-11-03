@@ -8,7 +8,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 입찰공고명: {{ bid.bidNtceNm }}
 공고기관: {{ bid.ntceInsttNm }}
-추정가격: {{ "{:,}".format(bid.presmptPrce|int) }}원
+추정가격: {{ bid.presmptPrce|won }}원
 입찰마감: {{ bid.bidClseDt }}
 개찰일시: {{ bid.opengDt }}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

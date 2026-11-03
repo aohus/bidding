@@ -81,3 +81,29 @@ class TestReset:
     def test_noop_when_already_on_first_key(self, multi):
         multi.maybe_reset()
         assert multi.active_idx == 0
+
+
+class TestRedactServiceKey:
+    def test_masks_query_param_regardless_of_known_keys(self):
+        from app.services.service_key_rotator import redact_service_key
+
+        out = redact_service_key("GET https://h/x?a=1&ServiceKey=SeCrEt%2Fx&b=2 failed")
+        assert "SeCrEt" not in out
+        assert "ServiceKey=***&b=2" in out
+
+    def test_case_insensitive_and_underscore_variant(self):
+        from app.services.service_key_rotator import redact_service_key
+
+        assert "abc" not in redact_service_key("serviceKey=abc")
+        assert "abc" not in redact_service_key("SERVICE_KEY=abc")
+
+    def test_masks_known_raw_and_url_encoded_keys(self):
+        from app.services.service_key_rotator import redact_service_key
+
+        out = redact_service_key("bad a/b+c and a%2Fb%2Bc", ["a/b+c"])
+        assert "a/b+c" not in out and "a%2Fb%2Bc" not in out
+
+    def test_non_string_and_empty_keys(self):
+        from app.services.service_key_rotator import redact_service_key
+
+        assert redact_service_key(ValueError("boom"), ["", None]) == "boom"

@@ -105,7 +105,7 @@
             <div class="bid-item">
                 <div class="bid-title">{{ bid.bidNtceNm }}</div>
                 <div class="bid-detail"><strong>공고기관:</strong> {{ bid.ntceInsttNm }}</div>
-                <div class="bid-detail"><strong>추정가격:</strong> {{ "{:,}".format(bid.presmptPrce|int) }}원</div>
+                <div class="bid-detail"><strong>추정가격:</strong> {{ bid.presmptPrce|won }}원</div>
                 <div class="bid-detail"><strong>입찰마감:</strong> {{ bid.bidClseDt }}</div>
                 <div class="bid-detail"><strong>개찰일시:</strong> {{ bid.opengDt }}</div>
             </div>

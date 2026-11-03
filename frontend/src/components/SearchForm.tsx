@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { BidSearchParams, UserLocation } from '@/types/bid';
 import { backendApi } from '@/lib/backendApi';
 import { toast } from 'sonner';
@@ -28,6 +29,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+
+const REGION_OPTION_HINT_ID = 'region-option-location-hint';
 
 interface SearchFormProps {
   onSearch: (params: BidSearchParams, page?: number) => void;
@@ -54,9 +57,15 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
 
   // 소재지 관련 상태
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [isLocationLoaded, setIsLocationLoaded] = useState(false);
   const [useLocationFilter, setUseLocationFilter] = useState(false);
   const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
   const [locationInput, setLocationInput] = useState('');
+
+  // 가산지역·공동도급의무지역(소재지 기준) / 부공종 포함 옵션
+  const [incntvRgnOnly, setIncntvRgnOnly] = useState(false);
+  const [jntcontrctDutyRgnOnly, setJntcontrctDutyRgnOnly] = useState(false);
+  const [includeSubsiCnstty, setIncludeSubsiCnstty] = useState(false);
 
   // 소재지 정보 로드
   useEffect(() => {
@@ -69,8 +78,19 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       setUserLocation(location);
     } catch {
       // 소재지 미등록
+    } finally {
+      setIsLocationLoaded(true);
     }
   };
+
+  // 소재지가 없으면 가산지역·공동도급의무지역 플래그를 강제로 해제한다.
+  // 저장 조건 복원(applyFilters)·소재지 로드·삭제 순서와 무관하게 유지되는 불변식:
+  // 소재지 없이 플래그가 켜져 있으면 handleSubmit이 모든 검색을 거부해 사용자가 갇힌다.
+  useEffect(() => {
+    if (!isLocationLoaded || userLocation) return;
+    if (incntvRgnOnly) setIncntvRgnOnly(false);
+    if (jntcontrctDutyRgnOnly) setJntcontrctDutyRgnOnly(false);
+  }, [isLocationLoaded, userLocation, incntvRgnOnly, jntcontrctDutyRgnOnly]);
 
   const handleSaveLocation = async () => {
     if (!locationInput.trim()) {
@@ -93,6 +113,8 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       await backendApi.deleteLocation();
       setUserLocation(null);
       setUseLocationFilter(false);
+      setIncntvRgnOnly(false);
+      setJntcontrctDutyRgnOnly(false);
       toast.success('소재지가 삭제되었습니다');
     } catch {
       toast.error('소재지 삭제 실패');
@@ -165,6 +187,13 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       if (filters.useLocationFilter !== undefined) {
           setUseLocationFilter(filters.useLocationFilter);
       }
+
+      // 키가 없는 이전 저장 조건은 false로 초기화 (true일 때만 의미).
+      // 소재지가 없는 것이 확정된 상태면 바로 해제 (로드 전이면 위 useEffect가 정리)
+      const isRegionFlagBlocked = isLocationLoaded && !userLocation;
+      setIncntvRgnOnly(!isRegionFlagBlocked && filters.incntvRgnOnly === true);
+      setJntcontrctDutyRgnOnly(!isRegionFlagBlocked && filters.jntcontrctDutyRgnOnly === true);
+      setIncludeSubsiCnstty(filters.includeSubsiCnstty === true);
   };
 
   const loadPreferences = async () => {
@@ -215,6 +244,10 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
     priceEnd,
     excludeClosed,
     useLocationFilter,
+    // 이메일 알림 스케줄러가 search_conditions에서 이 키 이름 그대로 읽는다 (=== true만 반영)
+    incntvRgnOnly,
+    jntcontrctDutyRgnOnly,
+    includeSubsiCnstty,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -225,7 +258,7 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       return;
     }
 
-    if (useLocationFilter && !userLocation) {
+    if ((useLocationFilter || incntvRgnOnly || jntcontrctDutyRgnOnly) && !userLocation) {
       toast.error('소재지를 먼저 등록해주세요');
       return;
     }
@@ -248,6 +281,9 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
       presmptPrceEnd: priceEnd || undefined,
       bidClseExcpYn: excludeClosed || undefined,
       useLocationFilter: useLocationFilter || undefined,
+      incntvRgnOnly: incntvRgnOnly || undefined,
+      jntcontrctDutyRgnOnly: jntcontrctDutyRgnOnly || undefined,
+      includeSubsiCnstty: includeSubsiCnstty || undefined,
     };
 
     // Always start from page 1 when submitting a new search
@@ -464,6 +500,48 @@ export default function SearchForm({ onSearch, isLoading, initialValues }: Searc
             </div>
           </div>
 
+          {/* 지역·업종 세부 옵션 */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="incntvRgnOnly"
+                checked={incntvRgnOnly}
+                disabled={!userLocation && !incntvRgnOnly}
+                aria-describedby={!userLocation ? REGION_OPTION_HINT_ID : undefined}
+                onCheckedChange={(checked) => setIncntvRgnOnly(checked === true)}
+              />
+              <Label htmlFor="incntvRgnOnly" className="text-sm cursor-pointer">
+                가산지역 내 지역 포함만
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="jntcontrctDutyRgnOnly"
+                checked={jntcontrctDutyRgnOnly}
+                disabled={!userLocation && !jntcontrctDutyRgnOnly}
+                aria-describedby={!userLocation ? REGION_OPTION_HINT_ID : undefined}
+                onCheckedChange={(checked) => setJntcontrctDutyRgnOnly(checked === true)}
+              />
+              <Label htmlFor="jntcontrctDutyRgnOnly" className="text-sm cursor-pointer">
+                공동도급 의무지역 내 지역 포함만
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="includeSubsiCnstty"
+                checked={includeSubsiCnstty}
+                onCheckedChange={(checked) => setIncludeSubsiCnstty(checked === true)}
+              />
+              <Label htmlFor="includeSubsiCnstty" className="text-sm cursor-pointer">
+                업종 검색 시 부공종 포함
+              </Label>
+            </div>
+            {!userLocation && (
+              <p id={REGION_OPTION_HINT_ID} className="text-xs text-muted-foreground">
+                가산지역·공동도급 의무지역 옵션은 소재지 등록 후 사용할 수 있습니다.
+              </p>
+            )}
+          </div>
 
           <div className="flex gap-2">
             <Button type="submit" className="flex-1" disabled={isLoading}>
