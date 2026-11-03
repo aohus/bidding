@@ -46,6 +46,8 @@ class BidDataSyncScheduler:
     RECENT_HOURS = 3  # 최근 3시간 재동기화
     BACKFILL_DAYS = 30
     MAX_BACKFILL_PER_RUN = 5
+    MAX_SUB_RETRY_PER_RUN = 5  # 부속 데이터셋 재시도 일별 윈도우 수
+    SUB_RETRY_DAYS = 30
     MAX_API_CALLS_PER_RUN = 80
     RESERVE_PRICE_BATCH = 10  # 사이클당 reserve_price fetch 건수
 
@@ -92,6 +94,7 @@ class BidDataSyncScheduler:
             try:
                 api_calls = await self._sync_recent_hours(api_calls)
                 api_calls = await self._backfill_past_days(api_calls)
+                api_calls = await self._retry_sub_datasets(api_calls)
                 await self._sync_reserve_prices(api_calls)
             except RateLimitError as exc:
                 logger.error(f"Sync cycle aborted, all keys exhausted: {exc}")
@@ -208,6 +211,71 @@ class BidDataSyncScheduler:
 
         return api_calls
 
+    async def _retry_sub_datasets(self, api_calls: int) -> int:
+        """부속 데이터셋(가산/공동도급의무지역/부공종) 미수집 일별 윈도우 재수집.
+
+        공고 윈도우 마킹은 부속 데이터셋 성공 여부와 분리돼 있으므로(신규
+        오퍼레이션 하나의 403 이 전체 동기화를 막지 않도록), 실패분은 여기서
+        data_sync_log.sub_datasets_synced=false 인 최근 일별 윈도우를 사이클당
+        최대 MAX_SUB_RETRY_PER_RUN 개 골라 3종만 다시 받는다.
+        첫 실패에서 이번 사이클의 재시도를 중단한다 (같은 오류 반복 호출 방지).
+        """
+        if api_calls >= self.MAX_API_CALLS_PER_RUN:
+            return api_calls
+        try:
+            async with AsyncSessionLocal() as db:
+                windows = await bid_data_service.list_windows_pending_sub_datasets(
+                    db, limit=self.MAX_SUB_RETRY_PER_RUN, days=self.SUB_RETRY_DAYS
+                )
+        except Exception as exc:
+            logger.error(f"sub-dataset retry target fetch failed: {exc}")
+            return api_calls
+
+        for ts, end in windows:
+            if api_calls >= self.MAX_API_CALLS_PER_RUN:
+                logger.info("API call limit reached, stopping sub-dataset retry")
+                break
+            async with AsyncSessionLocal() as db:
+                counts, ok, calls = await self._fetch_sub_datasets(db, ts, end)
+                api_calls += calls
+                if not ok:
+                    logger.warning(
+                        f"Sub-dataset retry failed for {ts}~{end}; "
+                        f"stopping retry step for this run"
+                    )
+                    break
+                try:
+                    await bid_data_service.mark_sub_datasets_synced(
+                        db, ts, end, *counts
+                    )
+                except Exception as exc:
+                    logger.warning(f"mark_sub_datasets_synced failed: {exc}")
+                    break
+                logger.info(f"Sub-datasets retried OK for {ts}~{end}: {counts}")
+            await asyncio.sleep(1)
+        return api_calls
+
+    async def _fetch_sub_datasets(
+        self, db, bgn: str, end: str
+    ) -> tuple[tuple[int, int, int], bool, int]:
+        """가산지역/공동도급의무지역/부공종 3종 수집.
+
+        일부가 실패해도 나머지는 저장한다. 반환: ((건수 3종), 전체 성공 여부, 호출 수)
+        """
+        ok = True
+        calls = 0
+        counts = []
+        for fetch in (
+            self._fetch_incntv_rgns,
+            self._fetch_jntcontrct_duty_rgns,
+            self._fetch_subsi_cnsttys,
+        ):
+            count, success, n = await fetch(db, bgn, end)
+            counts.append(count)
+            calls += n
+            ok = ok and success
+        return (counts[0], counts[1], counts[2]), ok, calls
+
     async def sync_window(
         self, window_start: str, window_end: str, force: bool = False
     ) -> None:
@@ -255,6 +323,9 @@ class BidDataSyncScheduler:
             total_notices = 0
             total_regions = 0
             total_license_limits = 0
+            total_incntv_rgns = 0
+            total_jntcontrct_duty_rgns = 0
+            total_subsi_cnsttys = 0
 
             # 1. 공사(contract) 공고
             count, success, calls = await self._fetch_notices(
@@ -288,7 +359,7 @@ class BidDataSyncScheduler:
             api_calls += calls
             all_success = all_success and success
 
-            # 5. 하나라도 실패하면 마킹하지 않음 (다음 사이클에 재시도).
+            # 6. 공고/지역/면허 중 하나라도 실패하면 마킹하지 않음 (다음 사이클에 재시도).
             #    이전에는 하나만 성공해도 마킹했기 때문에, 예컨대 면허제한만
             #    실패한 윈도우가 "완료"로 남아 그 구간 공고가 업종 필터 검색에서
             #    영구히 빠졌다.
@@ -302,6 +373,22 @@ class BidDataSyncScheduler:
                 )
                 return api_calls
 
+            # 7. 가산지역 / 공동도급의무지역 / 부공종 (마킹 조건과 분리)
+            #    실패해도 윈도우 마킹을 막지 않는다. 일별 윈도우는 사이클의
+            #    _retry_sub_datasets 가, 시간별 윈도우는 해당 일의 일별
+            #    백필(_backfill_past_days)이 다시 수집한다.
+            (
+                (total_incntv_rgns, total_jntcontrct_duty_rgns, total_subsi_cnsttys),
+                sub_ok,
+                calls,
+            ) = await self._fetch_sub_datasets(db, window_start, window_end)
+            api_calls += calls
+            if not sub_ok:
+                logger.warning(
+                    f"Sub-dataset fetch failed for {window_start}~{window_end}; "
+                    f"window still marked, sub datasets will be retried"
+                )
+
             try:
                 await bid_data_service.mark_window_synced(
                     db,
@@ -310,6 +397,10 @@ class BidDataSyncScheduler:
                     total_notices,
                     total_regions,
                     total_license_limits,
+                    total_incntv_rgns=total_incntv_rgns,
+                    total_jntcontrct_duty_rgns=total_jntcontrct_duty_rgns,
+                    total_subsi_cnsttys=total_subsi_cnsttys,
+                    sub_datasets_synced=sub_ok,
                 )
             except Exception as e:
                 logger.warning(f"mark_window_synced failed: {e}")
@@ -317,7 +408,10 @@ class BidDataSyncScheduler:
             logger.info(
                 f"Synced {window_start}~{window_end}: "
                 f"{total_notices} notices, {total_regions} regions, "
-                f"{total_license_limits} license limits"
+                f"{total_license_limits} license limits, "
+                f"{total_incntv_rgns} incntv rgns, "
+                f"{total_jntcontrct_duty_rgns} jntcontrct duty rgns, "
+                f"{total_subsi_cnsttys} subsi cnsttys"
             )
 
         return api_calls
@@ -435,6 +529,45 @@ class BidDataSyncScheduler:
             "license limits",
             narajangter_service.get_license_limit_by_date,
             bid_data_service.save_license_limits,
+            db,
+            bgn,
+            end,
+        )
+
+    async def _fetch_incntv_rgns(
+        self, db, bgn: str, end: str
+    ) -> tuple[int, bool, int]:
+        """가산지역을 페이지별로 조회하여 저장합니다."""
+        return await self._fetch_paged(
+            "incentive regions",
+            narajangter_service.get_incntv_rgn_by_date,
+            bid_data_service.save_incntv_rgns,
+            db,
+            bgn,
+            end,
+        )
+
+    async def _fetch_jntcontrct_duty_rgns(
+        self, db, bgn: str, end: str
+    ) -> tuple[int, bool, int]:
+        """공동도급의무지역을 페이지별로 조회하여 저장합니다."""
+        return await self._fetch_paged(
+            "joint-contract duty regions",
+            narajangter_service.get_jntcontrct_duty_rgn_by_date,
+            bid_data_service.save_jntcontrct_duty_rgns,
+            db,
+            bgn,
+            end,
+        )
+
+    async def _fetch_subsi_cnsttys(
+        self, db, bgn: str, end: str
+    ) -> tuple[int, bool, int]:
+        """부공종을 페이지별로 조회하여 저장합니다."""
+        return await self._fetch_paged(
+            "subsidiary constructions",
+            narajangter_service.get_subsi_cnstty_by_date,
+            bid_data_service.save_subsi_cnsttys,
             db,
             bgn,
             end,

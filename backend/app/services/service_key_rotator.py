@@ -7,8 +7,10 @@ rotate() 를 호출한다.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence
+from typing import Iterable, List, Optional, Sequence
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -72,3 +74,20 @@ class ServiceKeyRotator:
             f"/{len(self._keys) - 1}"
         )
         return True
+
+
+_SERVICE_KEY_PARAM = re.compile(r"(service_?key=)[^&\s\"']+", re.IGNORECASE)
+
+
+def redact_service_key(text: object, keys: Iterable[str] = ()) -> str:
+    """에러/로그 문구에서 서비스키를 가린다.
+
+    `ServiceKey=...` 쿼리 파라미터는 값과 무관하게 가리고, 알려진 키는
+    원문과 URL 인코딩된 형태 모두 문자열 치환한다 (httpx 예외 메시지나
+    응답 본문에 URL 이 섞여 들어와도 키가 새지 않도록).
+    """
+    message = _SERVICE_KEY_PARAM.sub(r"\1***", str(text))
+    for key in keys:
+        if key:
+            message = message.replace(key, "***").replace(quote(key, safe=""), "***")
+    return message

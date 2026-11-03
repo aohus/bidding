@@ -8,15 +8,21 @@ from app.services.service_key_rotator import (
     KEY_RESET_SECONDS,
     NoServiceKeyError,
     ServiceKeyRotator,
+    redact_service_key,
 )
 from app.schemas.bid import (
     BidApiResponse,
     BidAValueItem,
+    BidAttachmentItem,
+    BidEorderAttachmentItem,
     BidItem,
     BidResultItem,
     BidSearchParams,
+    IncntvRgnItem,
+    JntcontrctDutyRgnItem,
     LicenseLimitItem,
     PrtcptPsblRgnItem,
+    SubsiCnsttyItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,17 +171,24 @@ class NaraJangterService:
         """다음 키로 전환. 더 이상 사용 가능한 키가 없으면 False."""
         return self._rotator.rotate()
 
-    BASE_CNST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
-    BASE_SERV_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
+    # 입찰공고정보서비스 02 (전 오퍼레이션 https, 오퍼레이션명에 "02" 접미).
+    BID_PUBLIC_INFO_BASE = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02"
+    BASE_CNST_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoCnstwkPPSSrch02"
+    BASE_SERV_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoServcPPSSrch02"
     # 목록조회(일반) 엔드포인트. PPSSrch 와 달리 inqryDiv=2 가 "입찰공고번호" 조회라
     # 공고번호 단건 조회가 가능하다. PPSSrch 는 inqryDiv 2 가 "개찰일시"이고
     # bidNtceNo 파라미터를 무시하므로 단건 조회에 쓸 수 없다.
-    PLAIN_CNST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwk"
-    PLAIN_SERV_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServc"
-    CNSTWK_BSSAMT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount"
-    SERVC_BSSAMT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcBsisAmount"
-    PRTCPT_PSBL_RGN_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoPrtcptPsblRgn"
-    LICENSE_LIMIT_URL = "http://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoLicenseLimit"
+    PLAIN_CNST_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoCnstwk02"
+    PLAIN_SERV_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoServc02"
+    CNSTWK_BSSAMT_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoCnstwkBsisAmount02"
+    SERVC_BSSAMT_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoServcBsisAmount02"
+    PRTCPT_PSBL_RGN_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoPrtcptPsblRgn02"
+    LICENSE_LIMIT_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoLicenseLimit02"
+    ATCH_FILE_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoAtchFileInfo02"
+    EORDER_ATCH_FILE_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancListInfoEorderAtchFileInfo02"
+    INCNTV_RGN_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancIncntvRgnListInfo02"
+    JNTCONTRCT_DUTY_RGN_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancJntcontrctDutyRgnListInfo02"
+    SUBSI_CNSTTY_URL = f"{BID_PUBLIC_INFO_BASE}/getBidPblancSubsiCnsttyIndstrytyListInfo02"
     OPENG_RESULT_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoOpengCompt"
     CNSTWK_RESERVE_PRICE_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoCnstwkPreparPcDetail"
     SERVC_RESERVE_PRICE_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getOpengResultListInfoServcPreparPcDetail"
@@ -187,6 +200,15 @@ class NaraJangterService:
     @staticmethod
     def _is_service_type(bid_type: Optional[str]) -> bool:
         return bool(bid_type) and bid_type.lower() in ("servc", "service", "용역")
+
+    @staticmethod
+    def bsns_div_cd(bid_type: Optional[str]) -> str:
+        """업무구분코드: 용역 5, 그 외(공사) 3."""
+        return "5" if NaraJangterService._is_service_type(bid_type) else "3"
+
+    def _redact(self, text: object) -> str:
+        """httpx 예외/응답 본문에서 만든 문구에 서비스키가 남지 않게 가린다."""
+        return redact_service_key(text, self._service_keys)
 
     async def _request(
         self,
@@ -214,8 +236,10 @@ class NaraJangterService:
                 response = await client.get(url, params=query)
             except httpx.HTTPError as exc:
                 raise NaraJangterApiError(
-                    f"{context}: transport error: {exc}", code="TRANSPORT"
-                ) from exc
+                    f"{context}: transport error: {type(exc).__name__}: "
+                    f"{self._redact(exc)}",
+                    code="TRANSPORT",
+                ) from None  # 원본 예외 체인(요청 URL 포함 가능)을 남기지 않는다
 
             if response.status_code == 429:
                 logger.warning(
@@ -256,7 +280,7 @@ class NaraJangterService:
                     )
                 raise NaraJangterApiError(
                     f"{context}: HTTP {response.status_code}, non-JSON body: "
-                    f"{response.text[:200]}",
+                    f"{self._redact(response.text[:200])}",
                     code="PARSE",
                 )
 
@@ -275,7 +299,7 @@ class NaraJangterService:
                     continue
                 raise RateLimitError(
                     f"{context}: all {len(self._service_keys)} key(s) exhausted "
-                    f"([{code}] {message})",
+                    f"([{code}] {self._redact(message)})",
                     code=code,
                 )
 
@@ -283,7 +307,7 @@ class NaraJangterService:
                 if self._rotate_key():
                     continue
                 raise NaraJangterApiError(
-                    f"{context}: service key rejected ([{code}] {message}). "
+                    f"{context}: service key rejected ([{code}] {self._redact(message)}). "
                     f"data.go.kr 의 '디코딩' 키를 사용했는지 확인하세요 "
                     f"(인코딩 키를 넣으면 이중 인코딩되어 코드 30 이 됩니다)",
                     code=code,
@@ -293,7 +317,9 @@ class NaraJangterService:
                 logger.info(f"{context}: resultCode 03 (no data)")
                 return None
 
-            raise NaraJangterApiError(f"{context}: [{code}] {message}", code=code)
+            raise NaraJangterApiError(
+                f"{context}: [{code}] {self._redact(message)}", code=code
+            )
 
     async def search_bids(self, work_type, params: BidSearchParams) -> BidApiResponse:
         """Search for bid notices asynchronously."""
@@ -491,6 +517,133 @@ class NaraJangterService:
             return []
         items_data, _ = _items_of(data)
         return [PrtcptPsblRgnItem(**item) for item in items_data]
+
+    async def get_attachments_by_bid(
+        self,
+        bidNtceNo: str,
+        bidNtceOrd: str = "000",
+        bid_type: str = "cnstwk",
+    ) -> List[BidAttachmentItem]:
+        """공고번호 기준으로 공고 첨부파일을 조회합니다 (bsnsDivCd 필수)."""
+        query_params = {
+            "inqryDiv": 2,
+            "bidNtceNo": bidNtceNo,
+            "bidNtceOrd": bidNtceOrd,
+            "bsnsDivCd": self.bsns_div_cd(bid_type),
+            "pageNo": 1,
+            "numOfRows": self.MAX_PAGE_SIZE,
+            "type": "json",
+        }
+        context = f"get_attachments_by_bid({bidNtceNo}-{bidNtceOrd}, {bid_type})"
+        logger.info(context)
+
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
+            data = await self._request(
+                client, self.ATCH_FILE_URL, query_params, context
+            )
+
+        if data is None:
+            return []
+        items_data, _ = _items_of(data)
+        return [BidAttachmentItem(**item) for item in items_data]
+
+    async def get_eorder_attachments_by_bid(
+        self,
+        bidNtceNo: str,
+        bidNtceOrd: str = "000",
+    ) -> List[BidEorderAttachmentItem]:
+        """공고번호 기준으로 전자발주 첨부파일(제안요청서 등)을 조회합니다."""
+        query_params = {
+            "inqryDiv": 2,
+            "bidNtceNo": bidNtceNo,
+            "bidNtceOrd": bidNtceOrd,
+            "pageNo": 1,
+            "numOfRows": self.MAX_PAGE_SIZE,
+            "type": "json",
+        }
+        context = f"get_eorder_attachments_by_bid({bidNtceNo}-{bidNtceOrd})"
+        logger.info(context)
+
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
+            data = await self._request(
+                client, self.EORDER_ATCH_FILE_URL, query_params, context
+            )
+
+        if data is None:
+            return []
+        items_data, _ = _items_of(data)
+        return [BidEorderAttachmentItem(**item) for item in items_data]
+
+    async def _fetch_by_date(
+        self,
+        url: str,
+        name: str,
+        inqryBgnDt: str,
+        inqryEndDt: str,
+        pageNo: int,
+        numOfRows: int,
+    ) -> List[dict]:
+        """inqryDiv=1 날짜 윈도우 조회 공통부. 에러는 삼키지 않는다."""
+        query_params = {
+            "inqryDiv": 1,
+            "inqryBgnDt": inqryBgnDt,
+            "inqryEndDt": inqryEndDt,
+            "pageNo": pageNo,
+            "numOfRows": numOfRows,
+            "type": "json",
+        }
+        context = f"{name}({inqryBgnDt}~{inqryEndDt}, page={pageNo})"
+        logger.info(context)
+
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT_SECONDS) as client:
+            data = await self._request(client, url, query_params, context)
+
+        if data is None:
+            return []
+        items_data, _ = _items_of(data)
+        return items_data
+
+    async def get_incntv_rgn_by_date(
+        self,
+        inqryBgnDt: str,
+        inqryEndDt: str,
+        pageNo: int = 1,
+        numOfRows: int = MAX_PAGE_SIZE,
+    ) -> List[IncntvRgnItem]:
+        """날짜 기준으로 가산지역 정보를 조회합니다 (에러 전파)."""
+        items = await self._fetch_by_date(
+            self.INCNTV_RGN_URL, "get_incntv_rgn_by_date",
+            inqryBgnDt, inqryEndDt, pageNo, numOfRows,
+        )
+        return [IncntvRgnItem(**item) for item in items]
+
+    async def get_jntcontrct_duty_rgn_by_date(
+        self,
+        inqryBgnDt: str,
+        inqryEndDt: str,
+        pageNo: int = 1,
+        numOfRows: int = MAX_PAGE_SIZE,
+    ) -> List[JntcontrctDutyRgnItem]:
+        """날짜 기준으로 공동도급의무지역 정보를 조회합니다 (에러 전파)."""
+        items = await self._fetch_by_date(
+            self.JNTCONTRCT_DUTY_RGN_URL, "get_jntcontrct_duty_rgn_by_date",
+            inqryBgnDt, inqryEndDt, pageNo, numOfRows,
+        )
+        return [JntcontrctDutyRgnItem(**item) for item in items]
+
+    async def get_subsi_cnstty_by_date(
+        self,
+        inqryBgnDt: str,
+        inqryEndDt: str,
+        pageNo: int = 1,
+        numOfRows: int = MAX_PAGE_SIZE,
+    ) -> List[SubsiCnsttyItem]:
+        """날짜 기준으로 부공종 정보를 조회합니다 (에러 전파)."""
+        items = await self._fetch_by_date(
+            self.SUBSI_CNSTTY_URL, "get_subsi_cnstty_by_date",
+            inqryBgnDt, inqryEndDt, pageNo, numOfRows,
+        )
+        return [SubsiCnsttyItem(**item) for item in items]
 
     async def get_license_limit_by_date(
         self,

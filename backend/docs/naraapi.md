@@ -1,4 +1,4 @@
-url: http://apis.data.go.kr/1230000/ad/BidPublicInfoService
+url: https://apis.data.go.kr/1230000/ad/BidPublicInfoService02
 
 참고자료 버전: v1.2 (2026.04.10) 기준. 아래 "핵심 주의사항"은 실제 호출로 검증함.
 
@@ -269,3 +269,61 @@ bidWgrnteeRcptClseDt: 입찰보증서접수마감일시
 rgnLmtBidLocplcJdgmBssCd: 지역제한입찰소재지판단기준코드
 rgnLmtBidLocplcJdgmBssNm: 지역제한입찰소재지판단기준명
 ```
+
+## BidPublicInfoService02 전환 (2026-11-03 실측)
+
+- Base URL: `https://apis.data.go.kr/1230000/ad/BidPublicInfoService02`
+- 모든 오퍼레이션명에 `02` 접미사가 붙는다 (예: `getBidPblancListInfoCnstwkPPSSrch02`). 이전에 http 였던 오퍼레이션도 https 로 동작한다.
+- 개찰결과/예가(`/1230000/as/ScsbidInfoService`)는 이 서비스가 아니며 변경 없음.
+- 공통 파라미터: `inqryDiv=1` + `inqryBgnDt/inqryEndDt`(YYYYMMDDHHMM) 또는 `inqryDiv=2` + `bidNtceNo`(+`bidNtceOrd`), `pageNo`, `numOfRows`, `type=json`.
+
+### 신규 분리 오퍼레이션
+
+| 오퍼레이션 | 용도 | 앱 사용 방식 | 저장 |
+|---|---|---|---|
+| `getBidPblancListInfoAtchFileInfo02` | 공고 첨부파일 (**`bsnsDivCd` 필수**: 1물품 2외자 3공사 5용역) | 공고별 온디맨드 (`GET /bids/{no}/attachments`) | `bid_attachments` 캐시 (비어있지 않으면 24h, 비면 1h) |
+| `getBidPblancListInfoEorderAtchFileInfo02` | 전자발주 첨부파일 (제안요청서 등) | 위와 동일 | 위와 동일 |
+| `getBidPblancIncntvRgnListInfo02` | 가산지역 | 시간별 동기화 | `bid_incntv_rgns` |
+| `getBidPblancJntcontrctDutyRgnListInfo02` | 공동도급의무지역 (+ 의무비율) | 시간별 동기화 | `bid_jntcontrct_duty_rgns` |
+| `getBidPblancSubsiCnsttyIndstrytyListInfo02` | 부공종 (+ 평가비율) | 시간별 동기화 | `bid_subsi_cnsttys` |
+
+첨부파일은 시간당 약 150건으로 많아 동기화하지 않고 요청 시 조회한다.
+가산지역/공동도급의무지역/부공종은 주당 약 20~50건이라 일 윈도우당 1페이지로 충분하다.
+
+### 응답 필드
+
+주의: 일부 응답 키는 **대문자로 시작**한다 (`IncntvRgnNm`, `JntcontrctDutyRgnNm`).
+
+```
+첨부파일(AtchFileInfo02):
+  bidNtceNo, bidNtceOrd, ntceNticeDt,
+  atchSno: 첨부순번
+  atchDocDivNm: 문서구분명 (예: 공고서)
+  atchFileNm: 파일명
+  atchFileUrl: 다운로드 URL (https://www.g2b.go.kr/...)
+
+전자발주 첨부파일(EorderAtchFileInfo02):
+  bidNtceNo, bidNtceOrd, atchSno,
+  eorderDocDivNm: 문서구분명 (예: 제안요청서)
+  eorderAtchFileNm, eorderAtchFileUrl
+
+가산지역(IncntvRgnListInfo02):
+  bidNtceNo, bidNtceOrd, ntceNticeDt, sno,
+  IncntvRgnNm: 가산지역명 (예: 부산광역시)
+
+공동도급의무지역(JntcontrctDutyRgnListInfo02):
+  bidNtceNo, bidNtceOrd, ntceNticeDt, sno,
+  rgnDutyJntcontrctRt: 지역의무공동도급비율(%)
+  JntcontrctDutyRgnNm: 공동도급의무지역명
+
+부공종(SubsiCnsttyIndstrytyListInfo02):
+  bidNtceNo, bidNtceOrd, ntceNticeDt, sno,
+  subsiCnsttyCd: 부공종코드
+  subsiCnsttyNm: 부공종명
+  subsiCnsttyIndstrytyEvlRt: 부공종업종평가비율(%)
+```
+
+### 레거시 첨부 URL 폴백
+
+첨부파일 API 가 실패하거나 빈 결과일 때, 저장된 공고 data 의 `ntceSpecDocUrl1~10`/`ntceSpecFileNm*`,
+`sptDscrptDocUrl1~5`/`sptDscrptFileNm*`, `stdNtceDocUrl` 로 목록을 만들어 `source="legacy"` 로 응답한다.

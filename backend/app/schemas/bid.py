@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BidSearchParams(BaseModel):
@@ -17,8 +17,16 @@ class BidSearchParams(BaseModel):
     useLocationFilter: Optional[bool] = None  # 소재지 기준 참가가능지역 필터링
     orderBy: Optional[str] = None  # 정렬 컬럼 (rgstDt, bidClseDt, presmptPrce, bdgtAmt)
     orderDir: Optional[str] = None  # asc or desc
+    incntvRgnOnly: Optional[bool] = None  # 가산지역 해당 공고만 (소재지 등록 시)
+    jntcontrctDutyRgnOnly: Optional[bool] = None  # 공동도급의무지역 해당 공고만
+    includeSubsiCnstty: Optional[bool] = None  # 부공종 정보 포함
     numOfRows: int = 100
     pageNo: int = 1
+
+
+class SubsiCnsttyInfo(BaseModel):
+    nm: str
+    evlRt: Optional[str] = None
 
 
 class BidItem(BaseModel):
@@ -76,6 +84,13 @@ class BidItem(BaseModel):
     prtcptPsblRgnNms: Optional[str] = None # 참가가능지역명 (검색결과용, 쉼표구분)
     permsnIndstrytyListNms: Optional[str] = None # 허용업종목록 (검색결과용, 쉼표구분)
     indstrytyMfrcFldListNms: Optional[str] = None # 주력분야목록 (검색결과용, 쉼표구분)
+    # 02 API 전환: 읽기 시점에 계산되는 부속 데이터
+    incntvRgnNms: Optional[str] = None # 가산지역명 (쉼표구분)
+    jntcontrctDutyRgnNms: Optional[str] = None # 공동도급의무지역명 (쉼표구분)
+    rgnDutyJntcontrctRt: Optional[str] = None # 지역의무공동도급비율(%)
+    subsiCnsttys: Optional[List["SubsiCnsttyInfo"]] = None # 부공종 목록
+    isIncntvRgnMatch: Optional[bool] = None # None = 사용자 소재지 미등록
+    isJntcontrctDutyRgnMatch: Optional[bool] = None
 
 
 class BidApiResponse(BaseModel):
@@ -130,6 +145,77 @@ class PrtcptPsblRgnItem(BaseModel):
     prtcptPsblRgnNm: Optional[str] = None
     rgstDt: Optional[str] = None
     bsnsDivNm: Optional[str] = None
+
+
+class BidAttachmentItem(BaseModel):
+    """공고 첨부파일 (getBidPblancListInfoAtchFileInfo02)."""
+    bidNtceNo: str
+    bidNtceOrd: str
+    atchSno: Optional[str] = None
+    atchDocDivNm: Optional[str] = None
+    atchFileNm: Optional[str] = None
+    atchFileUrl: Optional[str] = None
+
+
+class BidEorderAttachmentItem(BaseModel):
+    """전자발주 첨부파일 (getBidPblancListInfoEorderAtchFileInfo02)."""
+    bidNtceNo: str
+    bidNtceOrd: Optional[str] = None
+    atchSno: Optional[str] = None
+    eorderDocDivNm: Optional[str] = None
+    eorderAtchFileNm: Optional[str] = None
+    eorderAtchFileUrl: Optional[str] = None
+
+
+class IncntvRgnItem(BaseModel):
+    """가산지역 (응답 키가 대문자 I 로 시작)."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    bidNtceNo: str
+    bidNtceOrd: str
+    ntceNticeDt: Optional[str] = None
+    sno: Optional[str] = None
+    incntvRgnNm: Optional[str] = Field(default=None, alias="IncntvRgnNm")
+
+
+class JntcontrctDutyRgnItem(BaseModel):
+    """공동도급의무지역 (응답 키가 대문자 J 로 시작)."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    bidNtceNo: str
+    bidNtceOrd: str
+    ntceNticeDt: Optional[str] = None
+    sno: Optional[str] = None
+    rgnDutyJntcontrctRt: Optional[str] = None
+    jntcontrctDutyRgnNm: Optional[str] = Field(
+        default=None, alias="JntcontrctDutyRgnNm"
+    )
+
+
+class SubsiCnsttyItem(BaseModel):
+    """부공종 (getBidPblancSubsiCnsttyIndstrytyListInfo02)."""
+    bidNtceNo: str
+    bidNtceOrd: str
+    ntceNticeDt: Optional[str] = None
+    sno: Optional[str] = None
+    subsiCnsttyCd: Optional[str] = None
+    subsiCnsttyNm: Optional[str] = None
+    subsiCnsttyIndstrytyEvlRt: Optional[str] = None
+
+
+class BidAttachment(BaseModel):
+    """API 응답용 통합 첨부파일."""
+    source: Literal["ntce", "eorder", "legacy"]
+    docDivNm: Optional[str] = None
+    fileNm: str
+    fileUrl: str
+    sno: Optional[int] = None
+
+
+class BidAttachmentsResponse(BaseModel):
+    bidNtceNo: str
+    bidNtceOrd: str
+    items: List[BidAttachment]
 
 
 class LicenseLimitItem(BaseModel):

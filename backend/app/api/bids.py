@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_admin_user, get_current_user
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.db.database import get_db
 from app.models.user import User, UserBookmark
 from app.schemas.bid import (
     BidApiResponse,
+    BidAttachment,
+    BidAttachmentsResponse,
     BidAValueItem,
     BidItem,
     BidResultItem,
@@ -32,7 +36,18 @@ from app.schemas.user import (
     BookmarkUpdate,
     PaginatedBookmarkResponse,
 )
-from app.services.bid_data_service import bid_data_service
+from app.services.bid_attachments import (
+    dedupe,
+    legacy_attachments,
+    map_eorder_attachments,
+    map_ntce_attachments,
+)
+from app.services.bid_data_service import (
+    ATTACHMENT_KIND_API,
+    ATTACHMENT_KIND_FAILED,
+    ATTACHMENT_KIND_LEGACY,
+    bid_data_service,
+)
 from app.services.narajangter import (
     NaraJangterApiError,
     RateLimitError,
@@ -499,7 +514,176 @@ async def get_bid_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bid notice not found",
         )
-    return BidItem(**row.data)
+    location = await bid_data_service.get_user_location(
+        db, current_user.user_id
+    )
+    items = await bid_data_service.enrich_notices(
+        db, [row], location.location_name if location else None
+    )
+    return items[0]
+
+
+BID_NO_PATTERN = r"^[A-Za-z0-9-]{1,40}$"
+BID_ORD_PATTERN = r"^[0-9]{1,3}$"
+BID_TYPE_PATTERN = r"^(cnstwk|servc)$"
+
+
+ATTACHMENTS_RATE_LIMIT = 30  # 사용자당 분당 요청 수
+ATTACHMENTS_RATE_WINDOW_SECONDS = 60
+ATTACHMENTS_RATE_LIMIT_DETAIL = (
+    "첨부파일 조회 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+)
+attachments_rate_limiter = SlidingWindowRateLimiter(
+    ATTACHMENTS_RATE_LIMIT, ATTACHMENTS_RATE_WINDOW_SECONDS
+)
+
+# 공고별 single-flight 락. 약한 참조라 진행 중인 요청이 없으면 자동 정리되어
+# 키 수가 동시 요청 수로 제한된다.
+_attachment_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def _attachment_lock(key: str) -> asyncio.Lock:
+    lock = _attachment_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _attachment_locks[key] = lock
+    return lock
+
+
+async def attachments_rate_limit(
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """첨부파일 엔드포인트의 사용자별 슬라이딩 윈도우 제한 (업스트림 쿼터 보호)."""
+    if not attachments_rate_limiter.allow(str(current_user.user_id)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=ATTACHMENTS_RATE_LIMIT_DETAIL,
+        )
+
+
+def _attachments_response(
+    bid_no: str, bid_ord: str, cached: list | None
+) -> BidAttachmentsResponse | None:
+    if cached is None:
+        return None
+    try:
+        return BidAttachmentsResponse(
+            bidNtceNo=bid_no,
+            bidNtceOrd=bid_ord,
+            items=[BidAttachment(**c) for c in cached],
+        )
+    except Exception:
+        logger.warning("invalid attachment cache entry, refetching", exc_info=True)
+        return None
+
+
+async def _fetch_upstream_attachments(
+    bid_no: str, bid_ord: str, bid_type: str
+) -> tuple[List[BidAttachment], bool]:
+    """공고문 + 전자발주 첨부를 조회한다. (항목, 하나라도 실패 여부)"""
+    items: List[BidAttachment] = []
+    api_failed = False
+    try:
+        ntce = await narajangter_service.get_attachments_by_bid(
+            bid_no, bid_ord, bid_type
+        )
+        items.extend(map_ntce_attachments(ntce))
+    except (NaraJangterApiError, RateLimitError) as e:
+        api_failed = True
+        logger.warning(f"attachments API failed for {bid_no}: {e}")
+    except Exception:
+        api_failed = True
+        logger.error(f"attachments API error for {bid_no}", exc_info=True)
+    try:
+        eorder = await narajangter_service.get_eorder_attachments_by_bid(
+            bid_no, bid_ord
+        )
+        items.extend(map_eorder_attachments(eorder))
+    except (NaraJangterApiError, RateLimitError) as e:
+        api_failed = True
+        logger.warning(f"eorder attachments API failed for {bid_no}: {e}")
+    except Exception:
+        api_failed = True
+        logger.error(f"eorder attachments API error for {bid_no}", exc_info=True)
+    return dedupe(items), api_failed
+
+
+@router.get(
+    "/{bidNtceNo}/attachments",
+    response_model=BidAttachmentsResponse,
+)
+async def get_bid_attachments(
+    bidNtceNo: str = Path(pattern=BID_NO_PATTERN),
+    bidNtceOrd: str = Query("000", pattern=BID_ORD_PATTERN),
+    bidType: str = Query("cnstwk", pattern=BID_TYPE_PATTERN),
+    current_user: User = Depends(get_current_user),
+    _rate_limit: None = Depends(attachments_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
+    """공고 첨부파일 목록 (캐시 -> API -> 레거시 URL 폴백).
+
+    남용/쿼터 방어:
+      - 저장된 공고만 조회 가능 (없으면 404, 업스트림 호출 없음)
+      - 공고별 single-flight: 동시 miss 는 업스트림 1회만 호출
+      - API 오류도 짧은 TTL(10분)로 네거티브 캐시
+      - 사용자별 분당 요청 제한 (429)
+    """
+    from app.models.bid import BidNotice
+
+    result = await db.execute(
+        select(BidNotice).where(
+            BidNotice.bid_ntce_no == bidNtceNo,
+            BidNotice.bid_ntce_ord == bidNtceOrd,
+        )
+    )
+    notice = result.scalar_one_or_none()
+    if notice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bid notice not found",
+        )
+
+    async def cached_response():
+        cached = await bid_data_service.get_cached_attachments(
+            db, bidNtceNo, bidNtceOrd
+        )
+        return _attachments_response(bidNtceNo, bidNtceOrd, cached)
+
+    hit = await cached_response()
+    if hit is not None:
+        return hit
+
+    async with _attachment_lock(f"{bidNtceNo}:{bidNtceOrd}"):
+        # 락 대기 중 다른 요청이 채웠을 수 있다
+        hit = await cached_response()
+        if hit is not None:
+            return hit
+
+        items, api_failed = await _fetch_upstream_attachments(
+            bidNtceNo, bidNtceOrd, bidType
+        )
+        kind = ATTACHMENT_KIND_API
+        if not items:
+            items = dedupe(legacy_attachments(notice.data))
+            if api_failed:
+                kind = ATTACHMENT_KIND_FAILED
+            elif items:
+                kind = ATTACHMENT_KIND_LEGACY
+        elif api_failed:
+            kind = ATTACHMENT_KIND_FAILED
+
+        try:
+            await bid_data_service.save_attachments_cache(
+                db, bidNtceNo, bidNtceOrd, [i.model_dump() for i in items], kind=kind
+            )
+        except Exception:
+            logger.warning("attachment cache save failed", exc_info=True)
+
+    return BidAttachmentsResponse(
+        bidNtceNo=bidNtceNo, bidNtceOrd=bidNtceOrd, items=items
+    )
 
 
 @router.get(
