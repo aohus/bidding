@@ -1,3 +1,4 @@
+import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -5,7 +6,23 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.core.config import settings
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+logger = logging.getLogger(__name__)
+
+
+def format_won(value) -> str:
+    """금액을 천단위 구분 문자열로. 숫자가 아니거나 비정상 값이면 '0'.
+
+    (Jinja 의 |int 는 'inf' 에서 OverflowError 가 날 수 있어, 한 건의 이상값이
+    메일 전체 렌더링을 죽이지 않도록 직접 방어한다.)
+    """
+    try:
+        if isinstance(value, str):
+            value = value.replace(",", "").strip()
+        return f"{int(float(value)):,}"
+    except (TypeError, ValueError, OverflowError):
+        return "0"
 
 
 class EmailService:
@@ -21,7 +38,13 @@ class EmailService:
         
         # Setup Jinja2 template environment
         template_dir = Path(__file__).parent.parent / "templates" / "email"
-        self.template_env = Environment(loader=FileSystemLoader(str(template_dir)))
+        # HTML 템플릿은 autoescape (공고명/사용자명 등 외부 입력의 HTML 주입 방지).
+        # .txt 템플릿은 이스케이프하지 않는다.
+        self.template_env = Environment(
+            loader=FileSystemLoader(str(template_dir)),
+            autoescape=select_autoescape(["html", "xml"]),
+        )
+        self.template_env.filters["won"] = format_won
     
     async def send_email(
         self,
@@ -67,7 +90,7 @@ class EmailService:
             return True
             
         except Exception as e:
-            print(f"Failed to send email to {to_email}: {str(e)}")
+            logger.error("Failed to send email to %s: %s", to_email, e)
             return False
     
     async def send_bid_notification(
@@ -114,7 +137,7 @@ class EmailService:
             )
             
         except Exception as e:
-            print(f"Failed to send bid notification: {str(e)}")
+            logger.error("Failed to send bid notification: %s", e)
             return False
     
     async def send_welcome_email(
@@ -149,7 +172,7 @@ class EmailService:
             )
             
         except Exception as e:
-            print(f"Failed to send welcome email: {str(e)}")
+            logger.error("Failed to send welcome email: %s", e)
             return False
 
 
